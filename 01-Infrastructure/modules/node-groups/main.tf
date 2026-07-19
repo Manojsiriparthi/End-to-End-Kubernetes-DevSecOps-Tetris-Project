@@ -67,13 +67,6 @@ resource "aws_eks_node_group" "main" {
     }
   }
 
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_worker_node_policy,
-    aws_iam_role_policy_attachment.eks_cni_policy,
-    aws_iam_role_policy_attachment.eks_container_registry_policy,
-  ]
-
   labels = each.value.labels
 
   dynamic "taint" {
@@ -89,21 +82,7 @@ resource "aws_eks_node_group" "main" {
     Name = each.value.node_group_name
     Type = each.value.subnet_type
   })
-}
 
-# These are placeholder resources to satisfy dependencies
-# In reality, these would be created by the IAM module
-resource "aws_iam_role_policy_attachment" "eks_worker_node_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = split("/", var.node_group_role_arn)[1]
-}
-
-resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = split("/", var.node_group_role_arn)[1]
-}
-
-resource "aws_iam_role_policy_attachment" "eks_container_registry_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = split("/", var.node_group_role_arn)[1]
+  # Node groups depend on the IAM role existing with proper policies
+  # These dependencies are handled at the environment level
 }

@@ -46,16 +46,6 @@ output "nat_gateway_ids" {
   value       = module.networking.nat_gateway_ids
 }
 
-output "public_route_table_ids" {
-  description = "IDs of the public route tables"
-  value       = module.networking.public_route_table_ids
-}
-
-output "private_route_table_ids" {
-  description = "IDs of the private route tables"
-  value       = module.networking.private_route_table_ids
-}
-
 # ==============================================================================
 # EKS CLUSTER OUTPUTS
 # ==============================================================================
@@ -75,11 +65,6 @@ output "cluster_security_group_id" {
   value       = module.eks_cluster.cluster_security_group_id
 }
 
-output "cluster_iam_role_arn" {
-  description = "IAM role ARN of the EKS cluster"
-  value       = module.eks_cluster.cluster_iam_role_arn
-}
-
 output "cluster_certificate_authority_data" {
   description = "Base64 encoded certificate data required to communicate with the cluster"
   value       = module.eks_cluster.cluster_certificate_authority_data
@@ -91,19 +76,9 @@ output "cluster_version" {
   value       = module.eks_cluster.cluster_version
 }
 
-output "cluster_platform_version" {
-  description = "Platform version for the EKS cluster"
-  value       = module.eks_cluster.cluster_platform_version
-}
-
 output "cluster_status" {
   description = "Status of the EKS cluster"
   value       = module.eks_cluster.cluster_status
-}
-
-output "cluster_primary_security_group_id" {
-  description = "The cluster primary security group ID created by EKS"
-  value       = module.eks_cluster.cluster_primary_security_group_id
 }
 
 # ==============================================================================
@@ -145,37 +120,26 @@ output "node_security_group_id" {
 }
 
 # ==============================================================================
-# IAM OUTPUTS
+# BASIC IAM OUTPUTS (LAYER 1)
 # ==============================================================================
 
-output "cluster_service_role_arn" {
+output "eks_cluster_role_arn" {
   description = "ARN of the EKS cluster service role"
-  value       = module.iam.eks_cluster_role_arn
+  value       = aws_iam_role.eks_cluster_role.arn
 }
 
-output "node_group_role_arn" {
+output "eks_node_group_role_arn" {
   description = "ARN of the EKS node group role"
-  value       = module.iam.eks_node_group_role_arn
+  value       = aws_iam_role.eks_node_group_role.arn
 }
+
+# ==============================================================================
+# IRSA IAM OUTPUTS (LAYER 3)
+# ==============================================================================
 
 output "aws_load_balancer_controller_role_arn" {
   description = "ARN of the AWS Load Balancer Controller IAM role"
-  value       = module.iam.aws_load_balancer_controller_role_arn
-}
-
-output "cluster_autoscaler_role_arn" {
-  description = "ARN of the Cluster Autoscaler IAM role"
-  value       = module.iam.cluster_autoscaler_role_arn
-}
-
-output "ebs_csi_driver_role_arn" {
-  description = "ARN of the EBS CSI Driver IAM role"
-  value       = module.iam.ebs_csi_driver_role_arn
-}
-
-output "karpenter_role_arn" {
-  description = "ARN of the Karpenter IAM role"
-  value       = module.iam.karpenter_role_arn
+  value       = aws_iam_role.aws_load_balancer_controller.arn
 }
 
 # ==============================================================================
@@ -231,6 +195,44 @@ output "kubectl_config_command" {
 }
 
 # ==============================================================================
+# DEPLOYMENT LAYERS SUMMARY
+# ==============================================================================
+
+output "deployment_layers_summary" {
+  description = "Summary of infrastructure deployment layers"
+  value = {
+    layer_1_basic = {
+      description = "Networking, KMS, Security Groups, Basic IAM Roles"
+      components = [
+        "VPC and Subnets",
+        "KMS Keys", 
+        "Security Groups",
+        "EKS Cluster Service Role",
+        "EKS Node Group Role"
+      ]
+      status = "completed"
+    }
+    layer_2_compute = {
+      description = "EKS Cluster and Node Groups"
+      components = [
+        "EKS Cluster",
+        "EKS Node Groups",
+        "OIDC Provider"
+      ]
+      status = "completed"
+    }
+    layer_3_advanced_iam = {
+      description = "IRSA Roles (Post-EKS)"
+      components = [
+        "AWS Load Balancer Controller Role",
+        "Future IRSA Roles"
+      ]
+      status = "completed"
+    }
+  }
+}
+
+# ==============================================================================
 # ENVIRONMENT INFORMATION
 # ==============================================================================
 
@@ -244,22 +246,7 @@ output "environment_info" {
     vpc_cidr        = var.vpc_cidr
     node_groups     = keys(var.node_group_configs)
     deployment_date = formatdate("YYYY-MM-DD hh:mm:ss ZZZ", timestamp())
-  }
-}
-
-# ==============================================================================
-# COST OPTIMIZATION NOTES FOR DEV
-# ==============================================================================
-
-output "cost_optimization_notes" {
-  description = "Cost optimization features enabled for dev environment"
-  value = {
-    single_nat_gateway      = "Enabled - Cost optimization for dev"
-    spot_instances          = "Used where possible for cost savings"
-    reduced_monitoring      = "CloudWatch monitoring disabled for cost"
-    minimal_logging         = "Only essential EKS logs enabled"
-    no_vpn_gateway         = "VPN gateway disabled for cost optimization"
-    basic_encryption       = "Basic KMS encryption only"
-    estimated_monthly_cost = "~$200-400 USD (varies by usage)"
+    architecture    = "layered-deployment"
+    circular_dependency_resolved = true
   }
 }

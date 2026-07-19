@@ -11,14 +11,14 @@ terraform {
   backend "s3" {
     bucket = "manoj-gaming-app"
     key    = "infrastructure/prod/terraform.tfstate"
-    region = "us-west-2"
+    region = "us-east-1"
     
     # Native file locking (recommended for production)
     use_lockfile = true
     
     # Enhanced security for production
-    encrypt          = true
-    force_path_style = false
+    encrypt = true
+    use_path_style = false
     
     # Workspace isolation
     workspace_key_prefix = "gaming-env"

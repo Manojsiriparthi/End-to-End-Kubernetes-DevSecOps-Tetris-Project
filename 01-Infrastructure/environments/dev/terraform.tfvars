@@ -11,7 +11,7 @@
 # PROJECT CONFIGURATION
 # ==============================================================================
 project_name   = "tetris-platform"
-aws_region     = "us-west-2"
+aws_region     = "us-east-1"
 owner          = "platform-engineering-team"
 cost_center    = "engineering-dev"
 business_unit  = "platform"
