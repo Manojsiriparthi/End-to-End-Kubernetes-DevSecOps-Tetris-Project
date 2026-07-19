@@ -176,9 +176,7 @@ resource "aws_eip" "nat" {
   domain = "vpc"
   
   tags = merge(local.common_tags, {
-    Name = var.single_nat_gateway ? 
-           "${local.name_prefix}-nat-eip" : 
-           "${local.name_prefix}-nat-eip-${local.az_mappings[var.availability_zones[count.index]].suffix}"
+    Name = var.single_nat_gateway ? "${local.name_prefix}-nat-eip" : "${local.name_prefix}-nat-eip-${local.az_mappings[var.availability_zones[count.index]].suffix}"
   })
 
   depends_on = [aws_internet_gateway.main]
@@ -195,9 +193,7 @@ resource "aws_nat_gateway" "main" {
   subnet_id     = aws_subnet.public[count.index].id
 
   tags = merge(local.common_tags, {
-    Name = var.single_nat_gateway ? 
-           "${local.name_prefix}-nat-gw" : 
-           "${local.name_prefix}-nat-gw-${local.az_mappings[var.availability_zones[count.index]].suffix}"
+    Name = var.single_nat_gateway ? "${local.name_prefix}-nat-gw" : "${local.name_prefix}-nat-gw-${local.az_mappings[var.availability_zones[count.index]].suffix}"
   })
 
   depends_on = [aws_internet_gateway.main]
@@ -243,9 +239,7 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   tags = merge(local.common_tags, {
-    Name = var.single_nat_gateway ? 
-           "${local.name_prefix}-private-rt" : 
-           "${local.name_prefix}-private-rt-${local.az_mappings[var.availability_zones[count.index]].suffix}"
+    Name = var.single_nat_gateway ? "${local.name_prefix}-private-rt" : "${local.name_prefix}-private-rt-${local.az_mappings[var.availability_zones[count.index]].suffix}"
     Type = "private"
   })
 }

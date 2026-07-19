@@ -177,11 +177,6 @@ module "kms" {
   
   tags = local.common_tags
 }
-  enable_key_rotation     = false   # Disabled for dev cost
-  enable_multi_region     = false   # Single region for dev
-
-  tags = local.common_tags
-}
 
 # ==============================================================================
 # IAM MODULE
