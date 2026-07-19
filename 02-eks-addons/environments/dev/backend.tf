@@ -1,32 +1,42 @@
 # ==============================================================================
 # DEV EKS ADDONS - TERRAFORM BACKEND CONFIGURATION
 # ==============================================================================
-# Description: S3 backend configuration for development EKS addons
+# Description: S3 backend with native file locking for dev EKS addons
 # Environment: Development
-# Usage: terraform init -backend-config=backend-dev.hcl
 # Author: Platform Engineering Team
 # Version: 1.0.0
 # ==============================================================================
 
-# S3 Backend Configuration for Dev EKS Addons
-bucket         = "tetris-platform-terraform-state-dev"
-key            = "eks-addons/dev/terraform.tfstate"
-region         = "us-west-2"
-dynamodb_table = "tetris-platform-terraform-locks-dev"
-encrypt        = true
+terraform {
+  backend "s3" {
+    bucket = "manoj-gaming-app"
+    key    = "eks-addons/dev/terraform.tfstate"
+    region = "us-west-2"
+    
+    # Native file locking
+    use_lockfile = true
+    
+    # Security
+    encrypt        = true
+    force_path_style = false
+    
+    # Workspace isolation
+    workspace_key_prefix = "addons-env"
+  }
+}
 
 # ==============================================================================
 # DEV ADDON DEPLOYMENT WORKFLOW
 # ==============================================================================
 # 1. Deploy infrastructure first:
 #    cd 01-Infrastructure/environments/dev
-#    terraform init -backend-config=backend-dev.hcl
+#    terraform init
 #    terraform plan -var-file=terraform.tfvars
 #    terraform apply -var-file=terraform.tfvars
 #
 # 2. Deploy EKS addons after infrastructure:
 #    cd 02-eks-addons/environments/dev
-#    terraform init -backend-config=backend-dev.hcl
+#    terraform init
 #    terraform plan -var-file=terraform.tfvars
 #    terraform apply -var-file=terraform.tfvars
 #

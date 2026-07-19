@@ -10,11 +10,6 @@
 terraform {
   required_version = ">= 1.5"
   
-  backend "s3" {
-    # Backend configuration will be provided via backend config file
-    # terraform init -backend-config=backend-dev.hcl
-  }
-  
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -47,7 +42,7 @@ provider "aws" {
   }
 }
 
-# Data sources for dynamic configuration
+# Data sources for EKS authentication (using new module outputs)
 data "aws_eks_cluster" "cluster" {
   name = module.eks_cluster.cluster_name
   depends_on = [module.eks_cluster]
@@ -90,24 +85,26 @@ locals {
     BusinessUnit   = var.business_unit
     BackupRequired = "false"  # Dev doesn't need backup
     Compliance     = "low"    # Dev has lower compliance requirements
+    GamingPlatform = "tetris"
+    InfrastructureType = "gaming-development"
   }
 
   # Availability Zones - Dynamic selection for HA
-  availability_zones = data.aws_availability_zones.available.names
+  availability_zones = slice(data.aws_availability_zones.available.names, 0, 2)  # Use 2 AZs for dev cost optimization
 
-  # CIDR Calculations for multi-AZ deployment
+  # CIDR Calculations for multi-AZ deployment (gaming-optimized)
   public_subnet_cidrs = [
-    for i, az in slice(local.availability_zones, 0, 3) : 
+    for i, az in local.availability_zones : 
     cidrsubnet(var.vpc_cidr, 8, i + 1)
   ]
   
   private_subnet_cidrs = [
-    for i, az in slice(local.availability_zones, 0, 3) : 
+    for i, az in local.availability_zones : 
     cidrsubnet(var.vpc_cidr, 8, i + 10)
   ]
   
   database_subnet_cidrs = [
-    for i, az in slice(local.availability_zones, 0, 3) : 
+    for i, az in local.availability_zones : 
     cidrsubnet(var.vpc_cidr, 8, i + 20)
   ]
 }
@@ -138,7 +135,7 @@ module "networking" {
   project_name       = var.project_name
   environment        = local.environment
   vpc_cidr          = var.vpc_cidr
-  availability_zones = slice(local.availability_zones, 0, 3)
+  availability_zones = local.availability_zones
 
   # Subnet Configurations
   public_subnet_cidrs   = local.public_subnet_cidrs
@@ -156,7 +153,11 @@ module "networking" {
   # Security Configuration (Relaxed for dev)
   enable_flow_logs              = false  # Cost optimization
   flow_logs_retention_in_days   = 7      # Minimal retention
-  enable_network_firewall       = false  # Not needed in dev
+  
+  # Gaming-specific VPC endpoints for cost optimization
+  enable_s3_endpoint       = true
+  enable_dynamodb_endpoint = true
+  enable_ec2_endpoint      = false
 
   tags = local.common_tags
 }
@@ -172,13 +173,12 @@ module "kms" {
   environment  = local.environment
 
   # Key Configuration (Minimal for dev)
-  create_cluster_kms_key = true
-  create_ebs_kms_key    = false  # Use default EBS encryption in dev
-  create_s3_kms_key     = false  # Use default S3 encryption in dev
-
-  # Key Policies
-  kms_key_administrators = var.kms_key_administrators
-  kms_key_users         = var.kms_key_users
+  create_ebs_kms_key = false  # Use default EBS encryption in dev
+  
+  tags = local.common_tags
+}
+  enable_key_rotation     = false   # Disabled for dev cost
+  enable_multi_region     = false   # Single region for dev
 
   tags = local.common_tags
 }
@@ -196,18 +196,9 @@ module "iam" {
   # EKS Cluster Configuration
   cluster_name = local.name_prefix
   
-  # Node Group IAM
-  node_group_configs = var.node_group_configs
-  
-  # Service Account Roles (Essential ones for dev)
-  create_aws_load_balancer_controller_role = true
-  create_cluster_autoscaler_role          = true
-  create_external_dns_role                = false  # Not needed in dev
-  create_ebs_csi_driver_role             = true
-  create_efs_csi_driver_role             = false   # Not needed in dev
-  create_cloudwatch_agent_role           = false   # Minimal logging in dev
-  create_fluent_bit_role                 = false   # Minimal logging in dev
-  create_karpenter_role                  = true
+  # OIDC Provider (will be set after cluster creation)
+  cluster_oidc_issuer_url = module.eks_cluster.cluster_oidc_issuer_url
+  oidc_provider_arn       = module.eks_cluster.oidc_provider_arn
   
   tags = local.common_tags
 }
@@ -225,12 +216,44 @@ module "security_groups" {
 
   # CIDR Blocks
   vpc_cidr_block       = module.networking.vpc_cidr_block
-  public_subnet_cidrs  = local.public_subnet_cidrs
   private_subnet_cidrs = local.private_subnet_cidrs
+  public_subnet_cidrs  = local.public_subnet_cidrs
 
-  # Dev-specific Security (More permissive for development)
-  bastion_allowed_cidrs = ["0.0.0.0/0"]  # Open for dev convenience
-  
+  # Access Control (Dev-friendly - more open)
+  authorized_networks   = ["0.0.0.0/0"]  # Open for dev convenience
+  allowed_cidrs        = ["0.0.0.0/0"]   # Open for dev
+  office_network_cidrs = var.office_network_cidrs
+
+  # Gaming Features (all enabled for dev testing)
+  enable_gaming_traffic    = true
+  enable_websocket_traffic = true
+  enable_public_access     = true
+  enable_gaming_metrics    = true
+
+  # Security Group Creation (minimal set for dev)
+  create_database_security_group   = false  # Use default SG in dev
+  create_redis_security_group     = false   # Use default SG in dev
+  create_monitoring_security_group = false  # Use default SG in dev
+  create_bastion_security_group   = var.create_bastion_host
+
+  # Gaming optimizations (dev-friendly)
+  gaming_optimizations = {
+    enable_low_latency_rules  = true
+    enable_session_affinity   = true
+    enable_connection_pooling = true
+    websocket_timeout        = 300    # Shorter timeout for dev
+    max_connections_per_ip   = 100    # Lower limit for dev
+  }
+
+  # Environment config (relaxed for dev)
+  environment_config = {
+    enable_strict_security = false
+    enable_debug_access   = true
+    enable_admin_access   = true
+    restrict_ssh_access   = false
+    enable_flow_logs      = false
+  }
+
   tags = local.common_tags
   depends_on = [module.networking]
 }
@@ -243,53 +266,93 @@ module "eks_cluster" {
   source = "../../modules/eks-cluster"
 
   # Basic Configuration
-  cluster_name    = local.name_prefix
+  project_name    = var.project_name
+  environment     = local.environment
   cluster_version = var.eks_cluster_version
 
-  # Networking
-  vpc_id                    = module.networking.vpc_id
-  subnet_ids               = concat(module.networking.private_subnet_ids, module.networking.public_subnet_ids)
-  control_plane_subnet_ids = module.networking.private_subnet_ids
+  # IAM Configuration
+  cluster_service_role_arn = module.iam.eks_cluster_service_role_arn
 
-  # Security Groups
-  additional_security_group_ids = [
-    module.security_groups.eks_cluster_additional_sg_id
-  ]
+  # Networking
+  subnet_ids                   = concat(module.networking.private_subnet_ids, module.networking.public_subnet_ids)
+  private_subnet_ids          = module.networking.private_subnet_ids
+  additional_security_group_ids = [module.security_groups.eks_cluster_security_group_id]
 
   # Access Configuration (Dev-friendly)
-  cluster_endpoint_private_access = true
-  cluster_endpoint_public_access  = true   # Allow public access for dev
-  cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]  # Open for dev
+  endpoint_private_access = true
+  endpoint_public_access  = true
+  public_access_cidrs    = ["0.0.0.0/0"]  # Open for dev
 
-  # Logging (Minimal for cost)
-  cluster_enabled_log_types = ["api", "audit"]  # Essential logs only
-  cloudwatch_log_group_retention_in_days = 7
+  # Encryption (using our KMS key)
+  kms_key_arn = module.kms.eks_cluster_key_arn
 
-  # OIDC Provider
-  enable_irsa = true
+  # Logging (minimal for dev cost optimization)
+  enable_gaming_logs                     = false  # Cost optimization
+  cloudwatch_log_group_retention_in_days = 3      # Minimal retention
+  cloudwatch_log_group_kms_key_id       = ""      # No encryption for cost
 
-  # Encryption (Basic for dev)
-  cluster_encryption_config = [{
-    provider_key_arn = module.kms.cluster_kms_key_arn
-    resources        = ["secrets"]
-  }]
+  # EKS Addons (essential ones for gaming)
+  enable_vpc_cni_addon        = true
+  enable_coredns_addon        = true
+  enable_kube_proxy_addon     = true
+  enable_ebs_csi_driver_addon = true
+  enable_efs_csi_driver_addon = false  # Not needed in dev
 
-  # IAM Roles
-  cluster_service_role_arn = module.iam.eks_cluster_role_arn
+  # EKS Addon IAM roles
+  ebs_csi_driver_role_arn = module.iam.ebs_csi_driver_role_arn
 
-  # Add-ons Management
-  manage_aws_auth_configmap = true
-  
-  # RBAC Configuration
-  aws_auth_roles = var.aws_auth_roles
-  aws_auth_users = var.aws_auth_users
+  # Gaming optimizations (dev-friendly)
+  gaming_optimizations = {
+    enable_prefix_delegation = true
+    warm_prefix_target      = "1"
+    warm_ip_target         = "5"    # Lower for dev
+    minimum_ip_target      = "2"    # Lower for dev
+    enable_pod_eni         = false  # Disabled for dev simplicity
+    enable_fast_dns        = true
+    kube_proxy_mode        = "iptables"
+  }
+
+  # Security (relaxed for dev)
+  enable_gaming_traffic_rules = true
+  gaming_traffic_cidrs       = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  enable_websocket_traffic   = true
+
+  # Monitoring (disabled for dev cost optimization)
+  enable_container_insights = false
+
+  # Fargate (disabled for dev cost optimization)
+  enable_fargate_profiles = false
+
+  # Gaming namespace and service accounts
+  create_gaming_namespace        = true
+  create_gaming_service_account  = true
+  gaming_workload_role_arn      = module.iam.gaming_workload_role_arn
+
+  # Cluster autoscaler
+  enable_cluster_autoscaler     = true
+  cluster_autoscaler_role_arn  = module.iam.cluster_autoscaler_role_arn
+
+  # Access entries (dev team access)
+  platform_team_access = var.platform_team_access
+  gaming_dev_team_access = var.gaming_dev_team_access
+
+  # Environment-specific config (dev optimizations)
+  environment_config = {
+    enable_spot_instances    = true   # Cost optimization
+    enable_gpu_nodes        = false  # Not needed in dev
+    enable_arm_nodes        = false  # Not needed in dev
+    max_pods_per_node       = 50     # Lower for dev
+    enable_network_policies = false  # Disabled for dev simplicity
+    enable_pod_security     = false  # Disabled for dev flexibility
+  }
 
   tags = local.common_tags
 
   depends_on = [
     module.networking,
     module.iam,
-    module.security_groups
+    module.security_groups,
+    module.kms
   ]
 }
 
@@ -301,32 +364,81 @@ module "node_groups" {
   source = "../../modules/node-groups"
 
   # Basic Configuration
-  cluster_name = module.eks_cluster.cluster_name
+  project_name = var.project_name
+  environment  = local.environment
   
+  cluster_name                        = module.eks_cluster.cluster_name
+  cluster_endpoint                   = module.eks_cluster.cluster_endpoint
+  cluster_certificate_authority_data = module.eks_cluster.cluster_certificate_authority_data
+  
+  # IAM
+  node_role_arn = module.iam.eks_node_group_role_arn
+
   # Networking
-  subnet_ids = {
-    public   = module.networking.public_subnet_ids
-    private  = module.networking.private_subnet_ids
-    database = module.networking.database_subnet_ids
+  subnet_ids          = module.networking.private_subnet_ids
+  security_group_ids = [module.security_groups.eks_nodes_security_group_id]
+
+  # Node Configuration (dev-optimized)
+  node_group_version = var.eks_cluster_version
+  disk_size         = 30    # Smaller for dev
+  disk_type         = "gp3"
+  disk_iops         = 3000
+  disk_throughput   = 125
+  enable_ebs_encryption = false  # Cost optimization for dev
+  ebs_kms_key_id       = ""      # No encryption for dev
+
+  # Scaling Configuration (dev-optimized)
+  max_unavailable_percentage = 50  # Faster updates in dev
+
+  # Spot Instances (enabled for dev cost optimization)
+  use_spot_instances      = true
+  enable_spot_node_group = true
+  spot_instance_types    = ["t3.medium", "t3.large", "m5.large"]
+  spot_desired_size      = 1
+  spot_max_size         = 3
+  spot_min_size         = 0
+
+  # GPU and ARM nodes (disabled for dev cost optimization)
+  enable_gpu_node_group = false
+  enable_arm_node_group = false
+
+  # Gaming optimizations (enabled for dev testing)
+  enable_gaming_optimizations = true
+  gaming_optimizations = {
+    enable_low_latency        = true
+    enable_enhanced_networking = true
+    enable_cpu_optimizations  = true
+    enable_memory_optimization = true
+    enable_disk_optimization  = true
   }
 
-  # Node Group Configurations
-  node_groups = var.node_group_configs
+  # Node labels for gaming workloads
+  node_labels = {
+    "gaming.io/environment"  = "dev"
+    "gaming.io/cost-optimized" = "true"
+    "gaming.io/workload-type" = "gaming"
+  }
 
-  # IAM
-  node_group_role_arn = module.iam.eks_node_group_role_arn
+  # No taints in dev for flexibility
+  gaming_taints = []
 
-  # Security
-  worker_security_group_id = module.eks_cluster.node_security_group_id
-  additional_security_group_ids = [
-    module.security_groups.eks_nodes_sg_id
-  ]
+  # Remote access (enabled for dev debugging)
+  enable_remote_access = var.enable_remote_access
+  key_pair_name       = var.key_pair_name
+  remote_access_security_group_ids = []
 
-  # Launch Template Configuration
-  enable_bootstrap_user_data = true
-  
-  # KMS (if enabled)
-  kms_key_id = module.kms.ebs_kms_key_id
+  # Monitoring (minimal for dev)
+  enable_detailed_monitoring = false
+  enable_container_insights = false
+
+  # Environment overrides for dev
+  environment_overrides = {
+    primary_instance_types = ["t3.medium", "t3.large"]
+    primary_desired_size   = 2
+    primary_min_size      = 1
+    primary_max_size      = 3
+    enable_spot_by_default = true
+  }
 
   tags = local.common_tags
 
