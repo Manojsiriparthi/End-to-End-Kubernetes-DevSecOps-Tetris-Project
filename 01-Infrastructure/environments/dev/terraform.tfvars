@@ -24,7 +24,7 @@ vpc_cidr = "10.10.0.0/16"  # Dev environment VPC
 # ==============================================================================
 # EKS CLUSTER CONFIGURATION
 # ==============================================================================
-eks_cluster_version = "1.28"
+eks_cluster_version = "1.33"
 
 # ==============================================================================
 # NODE GROUP CONFIGURATIONS (DEV-OPTIMIZED)
@@ -67,7 +67,7 @@ node_group_configs = {
     }
     
     enable_monitoring  = false  # Cost optimization
-    kubernetes_version = "1.28"
+    kubernetes_version = "1.33"
   },
   
   # Private Node Group - Application servers (Multi-purpose in dev)
@@ -107,7 +107,7 @@ node_group_configs = {
     }
     
     enable_monitoring  = false  # Cost optimization
-    kubernetes_version = "1.28"
+    kubernetes_version = "1.33"
   }
 }
 

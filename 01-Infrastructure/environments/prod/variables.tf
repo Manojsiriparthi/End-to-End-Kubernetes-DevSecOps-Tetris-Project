@@ -106,11 +106,11 @@ variable "gaming_traffic_cidrs" {
 variable "eks_cluster_version" {
   description = "Kubernetes version for EKS cluster"
   type        = string
-  default     = "1.29"
+  default     = "1.33"
   
   validation {
     condition = contains([
-      "1.28", "1.29"  # Use stable versions for production
+      "1.33", "1.34", "1.35"  # Use stable versions for production
     ], var.eks_cluster_version)
     error_message = "EKS cluster version must be a production-supported version."
   }

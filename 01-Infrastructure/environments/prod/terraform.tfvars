@@ -50,7 +50,7 @@ gaming_traffic_cidrs = [
 # ==============================================================================
 # EKS CLUSTER CONFIGURATION
 # ==============================================================================
-eks_cluster_version = "1.29"  # Latest stable for production
+eks_cluster_version = "1.33"  # Latest stable for production
 
 # ==============================================================================
 # ACCESS CONTROL CONFIGURATION (PRODUCTION RESTRICTED)

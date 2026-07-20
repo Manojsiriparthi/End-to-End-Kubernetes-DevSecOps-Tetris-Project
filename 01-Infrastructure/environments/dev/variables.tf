@@ -77,11 +77,11 @@ variable "vpc_cidr" {
 variable "eks_cluster_version" {
   description = "Kubernetes version for EKS cluster"
   type        = string
-  default     = "1.28"
+  default     = "1.33"
   
   validation {
     condition = contains([
-      "1.26", "1.27", "1.28", "1.29"
+      "1.33", "1.34", "1.35", "1.36"
     ], var.eks_cluster_version)
     error_message = "EKS cluster version must be a supported version."
   }
@@ -179,7 +179,7 @@ variable "node_group_configs" {
       }
       
       enable_monitoring  = true
-      kubernetes_version = "1.28"
+      kubernetes_version = "1.33"
     },
     
     # Private Node Group - Application servers
@@ -221,7 +221,7 @@ variable "node_group_configs" {
       }
       
       enable_monitoring  = true
-      kubernetes_version = "1.28"
+      kubernetes_version = "1.33"
     },
     
     # Database Node Group - Database workloads only
@@ -263,7 +263,7 @@ variable "node_group_configs" {
       }
       
       enable_monitoring  = true
-      kubernetes_version = "1.28"
+      kubernetes_version = "1.33"
     }
   }
 }
