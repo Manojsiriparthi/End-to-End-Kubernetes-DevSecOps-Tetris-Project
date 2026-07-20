@@ -70,9 +70,9 @@ gaming_dev_team_access = [
 # ==============================================================================
 # SECURITY CONFIGURATION
 # ==============================================================================
-enable_remote_access = true
-key_pair_name       = "test-gaming-nodes-keypair"
-create_bastion_host = true
+enable_remote_access = false  # No SSH access - use AWS Systems Manager
+key_pair_name       = ""     # No key pair needed
+create_bastion_host = false  # No bastion needed with proper monitoring
 
 # Encryption settings (production-like for testing)
 enable_multi_region = false

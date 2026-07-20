@@ -30,7 +30,7 @@ eks_cluster_version = "1.33"
 # NODE GROUP CONFIGURATIONS (DEV-OPTIMIZED)
 # ==============================================================================
 node_group_configs = {
-  # Public Node Group - Web servers, Load Balancers, Bastion (Cost-optimized)
+  # Public Node Group - Web servers, Load Balancers (Security-optimized)
   public_web = {
     node_group_name = "dev-public-web-nodes"
     subnet_type     = "public"
@@ -48,7 +48,7 @@ node_group_configs = {
     disk_encrypted = false  # Cost optimization for dev
     
     remote_access = {
-      ec2_ssh_key               = "dev-eks-nodes"
+      ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
       source_security_group_ids = []
     }
     
@@ -88,7 +88,7 @@ node_group_configs = {
     disk_encrypted = false  # Cost optimization
     
     remote_access = {
-      ec2_ssh_key               = "dev-eks-nodes"
+      ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
       source_security_group_ids = []
     }
     
@@ -114,41 +114,20 @@ node_group_configs = {
 # ==============================================================================
 # SECURITY CONFIGURATION (DEV-FRIENDLY)
 # ==============================================================================
-kms_key_administrators = [
-  "arn:aws:iam::ACCOUNT_ID:root"  # Replace with actual account ID
-]
+kms_key_administrators = []  # Will use root by default
 
-kms_key_users = [
-  "arn:aws:iam::ACCOUNT_ID:root"  # Replace with actual account ID
-]
+kms_key_users = []  # Will use root by default
 
-aws_auth_roles = [
-  {
-    rolearn  = "arn:aws:iam::ACCOUNT_ID:role/DevOpsTeam"
-    username = "devops-team"
-    groups   = ["system:masters"]
-  },
-  {
-    rolearn  = "arn:aws:iam::ACCOUNT_ID:role/DevelopersTeam"
-    username = "developers-team"
-    groups   = ["system:masters"]  # Full access in dev
-  }
-]
+aws_auth_roles = []  # Add roles as needed for dev environment
 
-aws_auth_users = [
-  {
-    userarn  = "arn:aws:iam::ACCOUNT_ID:user/platform-engineer"
-    username = "platform-engineer"
-    groups   = ["system:masters"]
-  }
-]
+aws_auth_users = []  # Add users as needed for dev environment
 
 # ==============================================================================
 # BASTION HOST CONFIGURATION
 # ==============================================================================
-create_bastion_host    = true
-bastion_instance_type  = "t3.micro"  # Cost-optimized
-bastion_key_name      = "dev-bastion-key"
+create_bastion_host    = false  # Disabled - use AWS Systems Manager
+bastion_instance_type  = "t3.micro"  # Not used when disabled
+bastion_key_name      = ""     # Not used when disabled
 
 # ==============================================================================
 # MONITORING AND LOGGING (COST-OPTIMIZED FOR DEV)

@@ -158,7 +158,7 @@ variable "node_group_configs" {
       disk_encrypted = true
       
       remote_access = {
-        ec2_ssh_key               = "dev-eks-nodes"
+        ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
         source_security_group_ids = []
       }
       
@@ -200,7 +200,7 @@ variable "node_group_configs" {
       disk_encrypted = true
       
       remote_access = {
-        ec2_ssh_key               = "dev-eks-nodes"
+        ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
         source_security_group_ids = []
       }
       
@@ -242,7 +242,7 @@ variable "node_group_configs" {
       disk_encrypted = true
       
       remote_access = {
-        ec2_ssh_key               = "dev-eks-nodes"
+        ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
         source_security_group_ids = []
       }
       

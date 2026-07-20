@@ -134,21 +134,22 @@ variable "gaming_dev_team_access" {
 # ==============================================================================
 
 variable "enable_remote_access" {
-  description = "Enable remote access to worker nodes"
+  description = "Enable remote access to worker nodes (disabled for security)"
   type        = bool
-  default     = true  # Enabled for test environment debugging
+  default     = false  # Disabled for security - use AWS Systems Manager
 }
 
 variable "key_pair_name" {
-  description = "EC2 Key Pair name for SSH access to nodes"
+  description = "EC2 Key Pair name for SSH access to nodes (empty for no SSH access)"
   type        = string
-  default     = "test-gaming-nodes"
+  default     = ""  # No SSH access - use AWS Systems Manager
 }
 
 variable "create_bastion_host" {
-  description = "Whether to create a bastion host"
+  description = "Whether to create a bastion host (disabled for security)"
   type        = bool
-  default     = true
+  default     = false  # Disabled - use AWS Systems Manager for access
+}
 }
 
 # ==============================================================================
