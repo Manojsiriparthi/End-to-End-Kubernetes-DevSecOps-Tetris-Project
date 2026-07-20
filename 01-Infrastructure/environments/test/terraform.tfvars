@@ -4,7 +4,7 @@
 # Description: Variable values for test environment
 # Environment: Test (Production-like but smaller scale, automated testing friendly)
 # Author: Platform Engineering Team
-# Version: 2.0.0
+# Version: 2.0.0 - Fixed to match working dev structure
 # ==============================================================================
 
 # ==============================================================================
@@ -141,60 +141,5 @@ enable_arm_nodes = true
 enable_vpn_gateway   = false  # Not needed in test
 enable_public_access = true   # Enable for test accessibility
 
-# ==============================================================================
-# GAMING-SPECIFIC CONFIGURATION
-# ==============================================================================
-# These values are used by the gaming applications for testing
-
-# Test environment should mirror production settings for validation
-# But with smaller scale and relaxed security for testing convenience
-
-# Gaming performance settings (test values)
-gaming_performance = {
-  max_concurrent_players    = 1000      # Lower than prod for test
-  session_timeout_seconds   = 1800      # 30 minutes for testing
-  enable_real_time_metrics = true       # Test metrics collection
-  websocket_timeout_seconds = 300       # 5 minutes for testing
-}
-
-# Test data settings
-test_data = {
-  enable_synthetic_load = true          # Generate test load
-  player_simulation_count = 100         # Simulate 100 concurrent players
-  game_duration_minutes = 15            # 15 minute test games
-}
-
-# ==============================================================================
-# MONITORING AND TESTING
-# ==============================================================================
-# Enhanced monitoring for test validation
-monitoring = {
-  enable_detailed_logging = true
-  log_level              = "DEBUG"
-  enable_performance_monitoring = true
-  enable_load_testing    = true
-}
-
-# ==============================================================================
-# ENVIRONMENT-SPECIFIC OVERRIDES
-# ==============================================================================
-# Test environment specific configurations that differ from defaults
-
-environment_overrides = {
-  # Network settings
-  single_nat_gateway = false  # Multi-AZ for production-like testing
-  
-  # Security settings
-  flow_logs_retention_days = 14  # Extended retention for test analysis
-  
-  # Compute settings
-  node_group_min_size = 2   # Minimum for HA testing
-  node_group_max_size = 10  # Reasonable scale for testing
-  
-  # Storage settings
-  ebs_volume_size = 50      # Moderate size for testing
-  
-  # Backup settings
-  backup_enabled = true     # Test backup functionality
-  backup_retention_days = 7 # Short retention for test
-}
+trusted_aws_accounts = []
+trusted_role_arns = []

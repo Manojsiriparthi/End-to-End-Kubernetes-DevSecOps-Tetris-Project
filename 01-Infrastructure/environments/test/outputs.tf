@@ -4,35 +4,11 @@
 # Description: Output values for test environment
 # Environment: Test (Production-like but smaller scale)
 # Author: Platform Engineering Team
-# Version: 2.0.0
+# Version: 2.0.0 - Fixed to match working dev structure
 # ==============================================================================
 
 # ==============================================================================
-# ENVIRONMENT INFORMATION
-# ==============================================================================
-
-output "environment" {
-  description = "Environment name"
-  value       = local.environment
-}
-
-output "project_name" {
-  description = "Project name"
-  value       = var.project_name
-}
-
-output "aws_region" {
-  description = "AWS region"
-  value       = var.aws_region
-}
-
-output "name_prefix" {
-  description = "Name prefix used for all resources"
-  value       = local.name_prefix
-}
-
-# ==============================================================================
-# NETWORKING OUTPUTS
+# VPC AND NETWORKING OUTPUTS
 # ==============================================================================
 
 output "vpc_id" {
@@ -60,6 +36,11 @@ output "database_subnet_ids" {
   value       = module.networking.database_subnet_ids
 }
 
+output "internet_gateway_id" {
+  description = "ID of the Internet Gateway"
+  value       = module.networking.internet_gateway_id
+}
+
 output "nat_gateway_ids" {
   description = "IDs of the NAT Gateways"
   value       = module.networking.nat_gateway_ids
@@ -69,14 +50,9 @@ output "nat_gateway_ids" {
 # EKS CLUSTER OUTPUTS
 # ==============================================================================
 
-output "cluster_id" {
-  description = "EKS cluster ID"
-  value       = module.eks_cluster.cluster_id
-}
-
-output "cluster_arn" {
-  description = "EKS cluster ARN"
-  value       = module.eks_cluster.cluster_arn
+output "cluster_name" {
+  description = "Name of the EKS cluster"
+  value       = module.eks_cluster.cluster_name
 }
 
 output "cluster_endpoint" {
@@ -89,190 +65,213 @@ output "cluster_security_group_id" {
   value       = module.eks_cluster.cluster_security_group_id
 }
 
+output "cluster_certificate_authority_data" {
+  description = "Base64 encoded certificate data required to communicate with the cluster"
+  value       = module.eks_cluster.cluster_certificate_authority_data
+  sensitive   = true
+}
+
+output "cluster_version" {
+  description = "The Kubernetes version for the EKS cluster"
+  value       = module.eks_cluster.cluster_version
+}
+
+output "cluster_status" {
+  description = "Status of the EKS cluster"
+  value       = module.eks_cluster.cluster_status
+}
+
+# ==============================================================================
+# OIDC PROVIDER OUTPUTS
+# ==============================================================================
+
 output "cluster_oidc_issuer_url" {
-  description = "The URL on the EKS cluster OIDC Issuer"
-  value       = module.eks_cluster.cluster_identity_oidc_issuer
+  description = "The URL on the EKS cluster for the OpenID Connect identity provider"
+  value       = module.eks_cluster.cluster_oidc_issuer_url
 }
 
 output "oidc_provider_arn" {
-  description = "The ARN of the OIDC Provider for the EKS cluster"
+  description = "ARN of the OIDC Provider for the EKS cluster"
   value       = module.eks_cluster.oidc_provider_arn
 }
 
 # ==============================================================================
-# NODE GROUPS OUTPUTS
+# NODE GROUP OUTPUTS
 # ==============================================================================
 
-output "node_groups_summary" {
-  description = "Summary of all node groups"
-  value       = module.node_groups.node_groups_summary
-}
-
-output "gaming_infrastructure_summary" {
-  description = "Summary of gaming infrastructure configuration"
-  value       = module.node_groups.gaming_infrastructure_summary
-}
-
-# ==============================================================================
-# SECURITY OUTPUTS
-# ==============================================================================
-
-output "security_group_mappings" {
-  description = "Map of security group names to IDs"
-  value       = module.security_groups.security_group_mappings
-}
-
-output "kms_key_mappings" {
-  description = "Map of KMS key purposes to ARNs"
-  value       = module.kms.key_mappings
-}
-
-# ==============================================================================
-# IAM OUTPUTS
-# ==============================================================================
-
-output "iam_roles" {
-  description = "Map of IAM role names to ARNs"
+output "node_groups" {
+  description = "Map of node group configurations and their status"
   value = {
-    eks_cluster_service_role = module.iam.eks_cluster_service_role_arn
-    eks_node_group_role     = module.iam.eks_node_group_role_arn
-    gaming_workload_role    = module.iam.gaming_workload_role_arn
+    for k, v in module.node_groups.node_groups : k => {
+      node_group_arn        = v.node_group_arn
+      node_group_status     = v.node_group_status
+      capacity_type         = v.capacity_type
+      instance_types        = v.instance_types
+      ami_type             = v.ami_type
+      node_group_resources = v.node_group_resources
+    }
   }
+  sensitive = true
 }
 
-output "service_account_annotations" {
-  description = "Annotations for Kubernetes service accounts"
-  value       = module.iam.service_account_annotations
+output "node_security_group_id" {
+  description = "Security group ID attached to the EKS node groups"
+  value       = module.eks_cluster.node_security_group_id
 }
 
 # ==============================================================================
-# KUBECTL CONFIGURATION
+# BASIC IAM OUTPUTS (LAYER 1)
 # ==============================================================================
 
-output "kubectl_config" {
-  description = "kubectl configuration for connecting to the cluster"
-  value       = module.eks_cluster.kubectl_config
-  sensitive   = true
+output "eks_cluster_role_arn" {
+  description = "ARN of the EKS cluster service role"
+  value       = aws_iam_role.eks_cluster_role.arn
 }
 
-output "kubeconfig_command" {
-  description = "Command to configure kubectl"
+output "eks_node_group_role_arn" {
+  description = "ARN of the EKS node group role"
+  value       = aws_iam_role.eks_node_group_role.arn
+}
+
+# ==============================================================================
+# IRSA IAM OUTPUTS (LAYER 3)
+# ==============================================================================
+
+output "aws_load_balancer_controller_role_arn" {
+  description = "ARN of the AWS Load Balancer Controller IAM role"
+  value       = aws_iam_role.aws_load_balancer_controller.arn
+}
+
+# ==============================================================================
+# SECURITY GROUP OUTPUTS
+# ==============================================================================
+
+output "bastion_security_group_id" {
+  description = "Security group ID for bastion host"
+  value       = module.security_groups.bastion_sg_id
+}
+
+output "eks_cluster_additional_security_group_id" {
+  description = "Additional security group ID for EKS cluster"
+  value       = module.security_groups.eks_cluster_additional_sg_id
+}
+
+output "eks_nodes_security_group_id" {
+  description = "Security group ID for EKS nodes"
+  value       = module.security_groups.eks_nodes_sg_id
+}
+
+output "alb_security_group_id" {
+  description = "Security group ID for Application Load Balancer"
+  value       = module.security_groups.alb_sg_id
+}
+
+output "database_security_group_id" {
+  description = "Security group ID for database"
+  value       = module.security_groups.database_sg_id
+}
+
+# ==============================================================================
+# KMS OUTPUTS
+# ==============================================================================
+
+output "kms_cluster_key_arn" {
+  description = "ARN of the KMS key used for EKS cluster encryption"
+  value       = module.kms.cluster_kms_key_arn
+}
+
+output "kms_cluster_key_id" {
+  description = "ID of the KMS key used for EKS cluster encryption"
+  value       = module.kms.cluster_kms_key_id
+}
+
+# ==============================================================================
+# KUBECTL CONNECTION COMMAND
+# ==============================================================================
+
+output "kubectl_config_command" {
+  description = "Command to configure kubectl for the EKS cluster"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks_cluster.cluster_name}"
 }
 
 # ==============================================================================
-# GAMING PLATFORM OUTPUTS
+# DEPLOYMENT LAYERS SUMMARY
 # ==============================================================================
 
-output "gaming_namespace" {
-  description = "Gaming namespace information"
-  value       = module.eks_cluster.gaming_namespace
-}
-
-output "gaming_service_account" {
-  description = "Gaming service account information"
-  value       = module.eks_cluster.gaming_service_account
-}
-
-output "websocket_endpoints" {
-  description = "WebSocket endpoints for real-time gaming"
+output "deployment_layers_summary" {
+  description = "Summary of infrastructure deployment layers"
   value = {
-    internal_lb = "ws://${module.eks_cluster.cluster_name}-internal.${var.aws_region}.elb.amazonaws.com:8080"
-    # External LB endpoint would be configured post-deployment
+    layer_1_basic = {
+      description = "Networking, KMS, Security Groups, Basic IAM Roles"
+      components = [
+        "VPC and Subnets",
+        "KMS Keys", 
+        "Security Groups",
+        "EKS Cluster Service Role",
+        "EKS Node Group Role"
+      ]
+      status = "completed"
+    }
+    layer_2_compute = {
+      description = "EKS Cluster and Node Groups"
+      components = [
+        "EKS Cluster",
+        "EKS Node Groups",
+        "OIDC Provider"
+      ]
+      status = "completed"
+    }
+    layer_3_advanced_iam = {
+      description = "IRSA Roles (Post-EKS)"
+      components = [
+        "AWS Load Balancer Controller Role",
+        "Future IRSA Roles"
+      ]
+      status = "completed"
+    }
   }
 }
 
 # ==============================================================================
-# MONITORING AND OBSERVABILITY
+# TEST ENVIRONMENT INFORMATION
 # ==============================================================================
 
-output "cloudwatch_log_groups" {
-  description = "CloudWatch log groups"
+output "environment_info" {
+  description = "Information about the deployed test environment"
   value = {
-    cluster_logs = module.eks_cluster.cloudwatch_log_group_name
+    project_name           = var.project_name
+    environment           = "test"
+    aws_region            = var.aws_region
+    cluster_name          = module.eks_cluster.cluster_name
+    vpc_cidr              = var.vpc_cidr
+    node_groups           = keys(var.node_group_configs)
+    deployment_date       = formatdate("YYYY-MM-DD hh:mm:ss ZZZ", timestamp())
+    architecture          = "layered-deployment"
+    production_like_testing = true
+    multi_az_deployment   = true
+    circular_dependency_resolved = true
   }
 }
 
-output "monitoring_endpoints" {
-  description = "Monitoring and metrics endpoints"
-  value = {
-    prometheus_endpoint = "http://prometheus.monitoring.svc.cluster.local:9090"
-    grafana_endpoint   = "http://grafana.monitoring.svc.cluster.local:3000"
-  }
-}
-
 # ==============================================================================
-# TEST ENVIRONMENT SPECIFIC
+# TEST-SPECIFIC SUMMARY
 # ==============================================================================
 
 output "test_environment_summary" {
   description = "Summary of test environment configuration"
   value = {
-    environment_type          = "test"
-    cluster_name             = module.eks_cluster.cluster_name
-    cluster_version          = var.eks_cluster_version
-    total_availability_zones = length(local.availability_zones)
-    cost_optimizations = {
-      spot_instances_enabled = var.enable_spot_instances
-      arm_nodes_enabled     = var.enable_arm_nodes
-      single_nat_gateway    = false  # Multi-AZ for production-like testing
-    }
-    testing_features = {
-      remote_access_enabled   = var.enable_remote_access
-      bastion_host_created   = var.create_bastion_host
-      enhanced_monitoring    = true
-      fargate_enabled        = true
-    }
-    gaming_configuration = {
-      websocket_support      = true
-      real_time_metrics     = true
-      session_affinity      = true
-      low_latency_optimized = true
-    }
-  }
-}
-
-# ==============================================================================
-# DEPLOYMENT INFORMATION
-# ==============================================================================
-
-output "deployment_info" {
-  description = "Information for application deployment"
-  value = {
-    cluster_name              = module.eks_cluster.cluster_name
-    cluster_endpoint         = module.eks_cluster.cluster_endpoint
-    gaming_namespace         = module.eks_cluster.gaming_namespace != null ? module.eks_cluster.gaming_namespace.name : null
-    gaming_service_account   = module.eks_cluster.gaming_service_account != null ? module.eks_cluster.gaming_service_account.name : null
-    load_balancer_role_arn   = module.iam.aws_load_balancer_controller_role_arn
-    cluster_autoscaler_role_arn = module.iam.cluster_autoscaler_role_arn
-    gaming_workload_role_arn = module.iam.gaming_workload_role_arn
-  }
-}
-
-# ==============================================================================
-# SECURITY SUMMARY
-# ==============================================================================
-
-output "security_summary" {
-  description = "Security configuration summary"
-  value = {
-    encryption_enabled = {
-      eks_secrets = module.kms.eks_cluster_key_arn != null
-      ebs_volumes = module.kms.ebs_key_arn != null
-      cloudwatch_logs = module.kms.cloudwatch_logs_key_arn != null
-      s3_buckets = module.kms.s3_key_arn != null
-    }
-    network_security = {
-      private_cluster_endpoint = !var.enable_public_access
-      authorized_networks_configured = length(var.authorized_networks) > 0
-      security_groups_configured = length(module.security_groups.security_group_mappings) > 0
-      vpc_flow_logs_enabled = true
-    }
-    access_control = {
-      rbac_enabled = true
-      pod_security_enabled = true
-      network_policies_enabled = true
-      service_accounts_created = length(module.iam.service_account_annotations) > 0
-    }
+    environment_type      = "Production-like Testing"
+    nat_gateways         = "Multi-AZ (HA)"
+    encryption           = "Enabled"
+    monitoring           = "Enhanced"
+    node_count           = sum([for ng in var.node_group_configs : ng.desired_capacity])
+    ami_type             = "AL2023_x86_64_STANDARD"
+    testing_capabilities = [
+      "Production-like scale testing",
+      "Multi-AZ failover testing", 
+      "Load balancer testing",
+      "Autoscaling testing",
+      "Security testing"
+    ]
   }
 }
