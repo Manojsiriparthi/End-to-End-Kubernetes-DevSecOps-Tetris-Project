@@ -458,7 +458,7 @@ module "node_groups" {
       subnet_type     = "private"
       
       instance_types = ["t3.large", "t3a.large"]
-      ami_type      = "UBUNTU_22_04_x86_64"  # Production-like with debugging capabilities
+      ami_type      = "AL2023_x86_64_STANDARD"  # Modern Amazon Linux for testing
       capacity_type = "ON_DEMAND"  # Stable for testing
       
       min_size         = 2

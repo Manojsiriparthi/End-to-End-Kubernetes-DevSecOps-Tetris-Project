@@ -36,7 +36,7 @@ node_group_configs = {
     subnet_type     = "public"
     
     instance_types = ["t3.small", "t3a.small"]  # Smaller instances for dev
-    ami_type      = "UBUNTU_22_04_x86_64"  # Developer-friendly with full toolchain
+    ami_type      = "AL2023_x86_64_STANDARD"  # Modern Amazon Linux 2023
     capacity_type = "SPOT"  # Cost optimization
     
     min_size         = 0  # Allow scaling to zero in dev
@@ -76,7 +76,7 @@ node_group_configs = {
     subnet_type     = "private"
     
     instance_types = ["t3.medium", "t3a.medium"]
-    ami_type      = "UBUNTU_22_04_x86_64"  # Developer-friendly with full toolchain
+    ami_type      = "AL2023_x86_64_STANDARD"  # Modern Amazon Linux 2023
     capacity_type = "SPOT"  # Cost optimization
     
     min_size         = 1
