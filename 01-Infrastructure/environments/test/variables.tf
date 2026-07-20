@@ -150,6 +150,60 @@ variable "create_bastion_host" {
   type        = bool
   default     = false  # Disabled - use AWS Systems Manager for access
 }
+
+# ==============================================================================
+# NODE GROUP CONFIGURATIONS
+# ==============================================================================
+
+variable "node_group_configs" {
+  description = "Configuration for EKS node groups"
+  type = map(object({
+    node_group_name = string
+    subnet_type     = string  # "public", "private", or "database"
+    
+    # Instance Configuration
+    instance_types = list(string)
+    ami_type      = string
+    capacity_type = string  # "ON_DEMAND" or "SPOT"
+    
+    # Scaling Configuration
+    min_size         = number
+    max_size         = number
+    desired_capacity = number
+    
+    # Node Configuration
+    disk_size    = number
+    disk_type    = string
+    disk_encrypted = bool
+    
+    # Networking
+    remote_access = object({
+      ec2_ssh_key               = string
+      source_security_group_ids = list(string)
+    })
+    
+    # Taints and Labels
+    taints = list(object({
+      key    = string
+      value  = string
+      effect = string
+    }))
+    
+    labels = map(string)
+    
+    # Update Configuration
+    update_config = object({
+      max_unavailable_percentage = number
+    })
+    
+    # Launch Template
+    enable_monitoring = bool
+    
+    # Kubernetes
+    kubernetes_version = string
+  }))
+  
+  default = {}  # Will be defined in terraform.tfvars
 }
 
 # ==============================================================================

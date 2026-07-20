@@ -53,6 +53,101 @@ gaming_traffic_cidrs = [
 eks_cluster_version = "1.33"  # Latest stable for production
 
 # ==============================================================================
+# NODE GROUP CONFIGURATIONS (PRODUCTION-OPTIMIZED)
+# ==============================================================================
+node_group_configs = {
+  # Primary gaming nodes - Ultra-high performance
+  prod_gaming_primary = {
+    node_group_name = "prod-gaming-primary"
+    subnet_type     = "private"
+    
+    instance_types = ["m5.xlarge", "c5.xlarge", "m5.2xlarge"]
+    ami_type      = "BOTTLEROCKET_x86_64"  # Maximum gaming performance
+    capacity_type = "ON_DEMAND"  # Stability for production
+    
+    min_size         = 3
+    max_size         = 20
+    desired_capacity = 5
+    
+    disk_size      = 200
+    disk_type      = "gp3"
+    disk_encrypted = true
+    
+    remote_access = {
+      ec2_ssh_key               = ""  # No SSH access in production
+      source_security_group_ids = []
+    }
+    
+    taints = [{
+      key    = "gaming.io/production"
+      value  = "true"
+      effect = "NO_SCHEDULE"
+    }]
+    
+    labels = {
+      "node-type"    = "gaming-primary"
+      "network-zone" = "private"
+      "workload"     = "gaming-production"
+      "environment"  = "prod"
+      "gaming.io/performance" = "ultra"
+      "gaming.io/production-ready" = "true"
+    }
+    
+    update_config = {
+      max_unavailable_percentage = 10  # Conservative for production
+    }
+    
+    enable_monitoring  = true
+    kubernetes_version = "1.33"
+  }
+  
+  # Secondary gaming nodes for overflow and scaling
+  prod_gaming_secondary = {
+    node_group_name = "prod-gaming-secondary"
+    subnet_type     = "private"
+    
+    instance_types = ["m5.large", "c5.large", "m5.xlarge"]
+    ami_type      = "BOTTLEROCKET_x86_64"  # Consistent performance
+    capacity_type = "SPOT"  # Cost optimization for overflow
+    
+    min_size         = 0
+    max_size         = 15
+    desired_capacity = 2
+    
+    disk_size      = 100
+    disk_type      = "gp3"
+    disk_encrypted = true
+    
+    remote_access = {
+      ec2_ssh_key               = ""  # No SSH access
+      source_security_group_ids = []
+    }
+    
+    taints = [{
+      key    = "gaming.io/burst"
+      value  = "true"
+      effect = "NO_SCHEDULE"
+    }]
+    
+    labels = {
+      "node-type"    = "gaming-secondary"
+      "network-zone" = "private"
+      "workload"     = "gaming-overflow"
+      "environment"  = "prod"
+      "gaming.io/performance" = "high"
+      "gaming.io/burst-capable" = "true"
+    }
+    
+    update_config = {
+      max_unavailable_percentage = 25  # Can handle more disruption
+    }
+    
+    enable_monitoring  = true
+    kubernetes_version = "1.33"
+  }
+}
+
+# ==============================================================================
 # ACCESS CONTROL CONFIGURATION (PRODUCTION RESTRICTED)
 # ==============================================================================
 platform_team_access = [

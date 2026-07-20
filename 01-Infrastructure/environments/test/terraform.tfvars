@@ -49,6 +49,50 @@ gaming_traffic_cidrs = [
 eks_cluster_version = "1.33"
 
 # ==============================================================================
+# NODE GROUP CONFIGURATIONS (TEST ENVIRONMENT - PRODUCTION-LIKE)
+# ==============================================================================
+node_group_configs = {
+  # Test gaming nodes - Production-like for validation
+  test_gaming_nodes = {
+    node_group_name = "test-gaming-nodes"
+    subnet_type     = "private"
+    
+    instance_types = ["t3.large", "t3a.large"]
+    ami_type      = "AL2023_x86_64_STANDARD"  # Modern Amazon Linux for testing
+    capacity_type = "ON_DEMAND"  # Stable for testing
+    
+    min_size         = 2
+    max_size         = 10
+    desired_capacity = 3
+    
+    disk_size      = 100
+    disk_type      = "gp3"
+    disk_encrypted = true
+    
+    remote_access = {
+      ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
+      source_security_group_ids = []
+    }
+    
+    taints = []  # No taints for testing flexibility
+    
+    labels = {
+      "node-type"    = "gaming"
+      "network-zone" = "private"
+      "workload"     = "gaming-test"
+      "environment"  = "test"
+    }
+    
+    update_config = {
+      max_unavailable_percentage = 25  # Production-like
+    }
+    
+    enable_monitoring  = true
+    kubernetes_version = "1.33"
+  }
+}
+
+# ==============================================================================
 # ACCESS CONTROL CONFIGURATION
 # ==============================================================================
 platform_team_access = [
