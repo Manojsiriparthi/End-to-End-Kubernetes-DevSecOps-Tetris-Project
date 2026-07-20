@@ -441,87 +441,66 @@ module "node_groups" {
   project_name = var.project_name
   environment  = local.environment
   
-  cluster_name                        = module.eks_cluster.cluster_name
-  cluster_endpoint                   = module.eks_cluster.cluster_endpoint
-  cluster_certificate_authority_data = module.eks_cluster.cluster_certificate_authority_data
+  cluster_name = module.eks_cluster.cluster_name
+  node_group_role_arn = module.iam.eks_node_group_role_arn
   
-  # IAM
-  node_role_arn = module.iam.eks_node_group_role_arn
-
-  # Networking
-  subnet_ids          = module.networking.private_subnet_ids
-  security_group_ids = [module.security_groups.eks_nodes_security_group_id]
-
-  # Node Configuration (test environment settings)
-  node_group_version = var.eks_cluster_version
-  disk_size         = 50    # Larger than dev, smaller than prod
-  disk_type         = "gp3"
-  disk_iops         = 3000
-  disk_throughput   = 125
-  enable_ebs_encryption = true
-  ebs_kms_key_id       = module.kms.ebs_key_arn
-
-  # Scaling Configuration (test-appropriate)
-  max_unavailable_percentage = 25  # Production-like
-
-  # Spot Instances (enabled for cost optimization in test)
-  use_spot_instances      = false  # Primarily on-demand for stability
-  enable_spot_node_group = true    # But have spot group available
-  spot_instance_types    = ["m5.large", "m5.xlarge", "c5.large"]
-  spot_desired_size      = 1
-  spot_max_size         = 5
-  spot_min_size         = 0
-
-  # GPU and ARM nodes (ARM enabled for testing)
-  enable_gpu_node_group = false
-  enable_arm_node_group = true
-  arm_instance_types   = ["m6g.medium", "m6g.large"]
-  arm_desired_size     = 1
-  arm_max_size        = 3
-  arm_min_size        = 0
-
-  # Gaming optimizations (production-like for testing)
-  enable_gaming_optimizations = true
-  gaming_optimizations = {
-    enable_low_latency        = true
-    enable_enhanced_networking = true
-    enable_cpu_optimizations  = true
-    enable_memory_optimization = true
-    enable_disk_optimization  = true
+  subnet_ids = {
+    public   = module.networking.public_subnet_ids
+    private  = module.networking.private_subnet_ids
+    database = module.networking.database_subnet_ids
   }
 
-  # Node labels for gaming workloads
-  node_labels = {
-    "gaming.io/environment"  = "test"
-    "gaming.io/testing-enabled" = "true"
-    "gaming.io/workload-type" = "gaming"
-    "gaming.io/monitoring" = "enhanced"
+  # Test Environment Node Groups - Production-like for validation
+  node_groups = {
+    # Production-like nodes for comprehensive testing
+    test_gaming_nodes = {
+      node_group_name = "test-gaming-nodes"
+      subnet_type     = "private"
+      
+      instance_types = ["t3.large", "t3a.large"]
+      ami_type      = "UBUNTU_22_04_x86_64"  # Production-like with debugging capabilities
+      capacity_type = "ON_DEMAND"  # Stable for testing
+      
+      min_size         = 2
+      max_size         = 10
+      desired_capacity = 3
+      
+      disk_size      = 100
+      disk_type      = "gp3"
+      disk_encrypted = true
+      
+      remote_access = {
+        ec2_ssh_key               = ""  # No SSH access - use AWS Systems Manager
+        source_security_group_ids = []
+      }
+      
+      taints = []  # No taints for testing flexibility
+      
+      labels = {
+        "node-type"    = "gaming"
+        "network-zone" = "private"
+        "workload"     = "gaming-test"
+        "environment"  = "test"
+        "gaming.io/testing-enabled" = "true"
+      }
+      
+      update_config = {
+        max_unavailable_percentage = 25  # Production-like
+      }
+      
+      enable_monitoring  = true  # Enhanced monitoring for testing
+      kubernetes_version = "1.33"
+    }
   }
 
-  # Gaming taints for production-like testing
-  gaming_taints = [{
-    key    = "gaming.io/dedicated"
-    value  = "true"
-    effect = "NO_SCHEDULE"
-  }]
+  # Security and optimization
+  worker_security_group_id = module.eks_cluster.node_security_group_id
+  additional_security_group_ids = [
+    module.security_groups.eks_nodes_security_group_id
+  ]
 
-  # Remote access (enabled for debugging)
-  enable_remote_access = var.enable_remote_access
-  key_pair_name       = var.key_pair_name
-  remote_access_security_group_ids = []
-
-  # Monitoring (enhanced for testing)
-  enable_detailed_monitoring = true
-  enable_container_insights = true
-
-  # Environment overrides for test
-  environment_overrides = {
-    primary_instance_types = ["m5.large", "m5.xlarge", "c5.large"]
-    primary_desired_size   = 3
-    primary_min_size      = 2
-    primary_max_size      = 10
-    enable_spot_by_default = false
-  }
+  enable_bootstrap_user_data = true
+  kms_key_id = module.kms.ebs_key_arn
 
   tags = local.common_tags
 

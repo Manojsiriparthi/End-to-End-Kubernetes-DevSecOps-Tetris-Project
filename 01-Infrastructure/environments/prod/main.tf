@@ -497,95 +497,116 @@ module "node_groups" {
   project_name = var.project_name
   environment  = local.environment
   
-  cluster_name                        = module.eks_cluster.cluster_name
-  cluster_endpoint                   = module.eks_cluster.cluster_endpoint
-  cluster_certificate_authority_data = module.eks_cluster.cluster_certificate_authority_data
+  cluster_name = module.eks_cluster.cluster_name
+  node_group_role_arn = module.iam.eks_node_group_role_arn
   
-  # IAM
-  node_role_arn = module.iam.eks_node_group_role_arn
-
-  # Networking
-  subnet_ids          = module.networking.private_subnet_ids
-  security_group_ids = [module.security_groups.eks_nodes_security_group_id]
-
-  # Node Configuration (production settings)
-  node_group_version = var.eks_cluster_version
-  disk_size         = 100   # Larger for production workloads
-  disk_type         = "gp3"
-  disk_iops         = 4000  # Higher IOPS for production
-  disk_throughput   = 250   # Higher throughput for production
-  enable_ebs_encryption = true
-  ebs_kms_key_id       = module.kms.ebs_key_arn
-
-  # Scaling Configuration (production settings)
-  max_unavailable_percentage = 10  # Conservative for production
-
-  # Spot Instances (controlled use in production)
-  use_spot_instances      = false  # Primary nodes on-demand for stability
-  enable_spot_node_group = var.enable_spot_instances
-  spot_instance_types    = ["m5.xlarge", "m5.2xlarge", "c5.xlarge", "c5.2xlarge"]
-  spot_desired_size      = var.enable_spot_instances ? 2 : 0
-  spot_max_size         = var.enable_spot_instances ? 10 : 0
-  spot_min_size         = 0
-
-  # GPU nodes (optional for advanced gaming features)
-  enable_gpu_node_group = var.enable_gpu_nodes
-  gpu_instance_types   = ["g4dn.xlarge", "g4dn.2xlarge", "g5.xlarge"]
-  gpu_desired_size     = var.enable_gpu_nodes ? 1 : 0
-  gpu_max_size        = var.enable_gpu_nodes ? 5 : 0
-  gpu_min_size        = 0
-  gpu_disk_size       = 200
-
-  # ARM nodes (optional for cost optimization)
-  enable_arm_node_group = var.enable_arm_nodes
-  arm_instance_types   = ["m6g.large", "m6g.xlarge", "c6g.large"]
-  arm_desired_size     = var.enable_arm_nodes ? 2 : 0
-  arm_max_size        = var.enable_arm_nodes ? 10 : 0
-  arm_min_size        = 0
-
-  # Gaming optimizations (production settings)
-  enable_gaming_optimizations = true
-  gaming_optimizations = {
-    enable_low_latency        = true
-    enable_enhanced_networking = true
-    enable_cpu_optimizations  = true
-    enable_memory_optimization = true
-    enable_disk_optimization  = true
+  subnet_ids = {
+    public   = module.networking.public_subnet_ids
+    private  = module.networking.private_subnet_ids
+    database = module.networking.database_subnet_ids
   }
 
-  # Node labels for gaming workloads
-  node_labels = {
-    "gaming.io/environment"     = "prod"
-    "gaming.io/production-ready" = "true"
-    "gaming.io/workload-type"   = "gaming"
-    "gaming.io/monitoring"      = "enhanced"
-    "gaming.io/compliance"      = "high"
+  # Production Gaming Node Groups - Maximum Performance
+  node_groups = {
+    # Primary gaming nodes - Ultra-high performance
+    prod_gaming_primary = {
+      node_group_name = "prod-gaming-primary"
+      subnet_type     = "private"
+      
+      instance_types = ["m5.xlarge", "c5.xlarge", "m5.2xlarge"]
+      ami_type      = "BOTTLEROCKET_x86_64"  # Maximum gaming performance
+      capacity_type = "ON_DEMAND"  # Stability for production
+      
+      min_size         = 3
+      max_size         = 20
+      desired_capacity = 5
+      
+      disk_size      = 200
+      disk_type      = "gp3"
+      disk_encrypted = true
+      
+      remote_access = {
+        ec2_ssh_key               = ""  # No SSH access in production
+        source_security_group_ids = []
+      }
+      
+      taints = [{
+        key    = "gaming.io/production"
+        value  = "true"
+        effect = "NO_SCHEDULE"
+      }]
+      
+      labels = {
+        "node-type"    = "gaming-primary"
+        "network-zone" = "private"
+        "workload"     = "gaming-production"
+        "environment"  = "prod"
+        "gaming.io/performance" = "ultra"
+        "gaming.io/production-ready" = "true"
+      }
+      
+      update_config = {
+        max_unavailable_percentage = 10  # Conservative for production
+      }
+      
+      enable_monitoring  = true
+      kubernetes_version = "1.33"
+    },
+    
+    # Secondary gaming nodes for overflow and scaling
+    prod_gaming_secondary = {
+      node_group_name = "prod-gaming-secondary"
+      subnet_type     = "private"
+      
+      instance_types = ["m5.large", "c5.large", "m5.xlarge"]
+      ami_type      = "BOTTLEROCKET_x86_64"  # Consistent performance
+      capacity_type = "SPOT"  # Cost optimization for overflow
+      
+      min_size         = 0
+      max_size         = 15
+      desired_capacity = 2
+      
+      disk_size      = 100
+      disk_type      = "gp3"
+      disk_encrypted = true
+      
+      remote_access = {
+        ec2_ssh_key               = ""  # No SSH access
+        source_security_group_ids = []
+      }
+      
+      taints = [{
+        key    = "gaming.io/burst"
+        value  = "true"
+        effect = "NO_SCHEDULE"
+      }]
+      
+      labels = {
+        "node-type"    = "gaming-secondary"
+        "network-zone" = "private"
+        "workload"     = "gaming-overflow"
+        "environment"  = "prod"
+        "gaming.io/performance" = "high"
+        "gaming.io/burst-capable" = "true"
+      }
+      
+      update_config = {
+        max_unavailable_percentage = 25  # Can handle more disruption
+      }
+      
+      enable_monitoring  = true
+      kubernetes_version = "1.33"
+    }
   }
 
-  # Gaming taints for production workload isolation
-  gaming_taints = [{
-    key    = "gaming.io/production"
-    value  = "true"
-    effect = "NO_SCHEDULE"
-  }]
+  # Security and optimization
+  worker_security_group_id = module.eks_cluster.node_security_group_id
+  additional_security_group_ids = [
+    module.security_groups.eks_nodes_security_group_id
+  ]
 
-  # Remote access (restricted in production)
-  enable_remote_access = var.enable_remote_access
-  key_pair_name       = var.key_pair_name
-  remote_access_security_group_ids = var.enable_remote_access ? [module.security_groups.bastion_security_group_id] : []
-
-  # Monitoring (full monitoring for production)
-  enable_detailed_monitoring = true
-  enable_container_insights = true
-
-  # Environment overrides for production
-  environment_overrides = {
-    primary_instance_types = ["m5.xlarge", "m5.2xlarge", "c5.xlarge", "c5.2xlarge"]
-    primary_desired_size   = 5
-    primary_min_size      = 3
-    primary_max_size      = 20
-    enable_spot_by_default = false
-  }
+  enable_bootstrap_user_data = true
+  kms_key_id = module.kms.ebs_key_arn
 
   tags = local.common_tags
 

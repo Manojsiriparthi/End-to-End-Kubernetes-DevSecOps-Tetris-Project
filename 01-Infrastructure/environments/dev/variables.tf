@@ -146,7 +146,7 @@ variable "node_group_configs" {
       subnet_type     = "public"
       
       instance_types = ["t3.medium", "t3a.medium"]
-      ami_type      = "AL2_x86_64"
+      ami_type      = "UBUNTU_22_04_x86_64"  # Developer-friendly
       capacity_type = "SPOT"  # Cost optimization for dev
       
       min_size         = 1
@@ -188,7 +188,7 @@ variable "node_group_configs" {
       subnet_type     = "private"
       
       instance_types = ["t3.large", "t3a.large"]
-      ami_type      = "AL2_x86_64"
+      ami_type      = "UBUNTU_22_04_x86_64"  # Developer-friendly
       capacity_type = "ON_DEMAND"
       
       min_size         = 1
@@ -230,7 +230,7 @@ variable "node_group_configs" {
       subnet_type     = "database"
       
       instance_types = ["r5.large", "r5a.large"]
-      ami_type      = "AL2_x86_64"
+      ami_type      = "UBUNTU_22_04_x86_64"  # Developer-friendly
       capacity_type = "ON_DEMAND"
       
       min_size         = 1
