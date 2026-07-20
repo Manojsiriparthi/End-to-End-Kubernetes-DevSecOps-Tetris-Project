@@ -98,7 +98,7 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 # ==============================================================================
-# LAYER 1: NETWORKING MODULE
+# LAYER 1: NETWORKING MODULE WITH PROPER DEPENDENCY MANAGEMENT
 # ==============================================================================
 
 module "networking" {
@@ -125,6 +125,9 @@ module "networking" {
   enable_flow_logs         = false
 
   tags = local.common_tags
+  
+  # Dependency management to ensure clean destroy
+  depends_on = []  # Networking is Layer 1, no dependencies
 }
 
 # ==============================================================================

@@ -167,11 +167,12 @@ resource "aws_db_subnet_group" "database" {
 }
 
 # ==============================================================================
+# ==============================================================================
 # ELASTIC IP ADDRESSES FOR NAT GATEWAYS
 # ==============================================================================
 
 resource "aws_eip" "nat" {
-  count = var.single_nat_gateway ? 1 : length(var.availability_zones)
+  count = var.enable_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.availability_zones)) : 0
 
   domain = "vpc"
   
@@ -179,11 +180,17 @@ resource "aws_eip" "nat" {
     Name = var.single_nat_gateway ? "${local.name_prefix}-nat-eip" : "${local.name_prefix}-nat-eip-${local.az_mappings[var.availability_zones[count.index]].suffix}"
   })
 
+  # Ensure EIPs are created after IGW and destroyed before NAT gateways are created
   depends_on = [aws_internet_gateway.main]
+  
+  lifecycle {
+    # Prevent destroy issues during NAT gateway recreation
+    create_before_destroy = true
+  }
 }
 
 # ==============================================================================
-# NAT GATEWAYS
+# NAT GATEWAYS WITH PROPER DESTROY ORDER
 # ==============================================================================
 
 resource "aws_nat_gateway" "main" {
@@ -196,7 +203,16 @@ resource "aws_nat_gateway" "main" {
     Name = var.single_nat_gateway ? "${local.name_prefix}-nat-gw" : "${local.name_prefix}-nat-gw-${local.az_mappings[var.availability_zones[count.index]].suffix}"
   })
 
-  depends_on = [aws_internet_gateway.main]
+  # Ensure proper creation order
+  depends_on = [
+    aws_internet_gateway.main,
+    aws_eip.nat
+  ]
+  
+  lifecycle {
+    # Ensure NAT gateways are destroyed first before EIPs
+    create_before_destroy = false
+  }
 }
 
 # ==============================================================================
@@ -233,6 +249,10 @@ resource "aws_route_table_association" "public" {
 # ROUTE TABLES - PRIVATE
 # ==============================================================================
 
+# ==============================================================================
+# ROUTE TABLES - PRIVATE WITH PROPER DEPENDENCY MANAGEMENT
+# ==============================================================================
+
 resource "aws_route_table" "private" {
   count = var.enable_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.availability_zones)) : length(var.availability_zones)
 
@@ -251,8 +271,11 @@ resource "aws_route" "private_nat_gateway" {
   destination_cidr_block = "0.0.0.0/0"
   nat_gateway_id         = aws_nat_gateway.main[var.single_nat_gateway ? 0 : count.index].id
 
+  depends_on = [aws_nat_gateway.main]
+
   timeouts {
     create = "5m"
+    delete = "10m"  # Longer timeout for destroy operations
   }
 }
 

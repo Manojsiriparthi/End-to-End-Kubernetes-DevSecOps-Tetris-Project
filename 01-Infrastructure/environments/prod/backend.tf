@@ -18,7 +18,6 @@ terraform {
     
     # Enhanced security for production
     encrypt = true
-    use_path_style = false
     
     # Workspace isolation
     workspace_key_prefix = "gaming-env"
