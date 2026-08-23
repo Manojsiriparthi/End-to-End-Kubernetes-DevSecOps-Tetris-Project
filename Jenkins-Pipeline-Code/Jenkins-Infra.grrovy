@@ -20,6 +20,8 @@ pipeline {
     string(name: 'TF_DIR', defaultValue: 'infra', description: 'Path to Terraform configuration (relative to repo root)')
     string(name: 'TF_WORKSPACE', defaultValue: '', description: '(optional) Terraform workspace name — if empty the pipeline will use ENV')
     booleanParam(name: 'AUTO_APPROVE_DEV', defaultValue: true, description: 'Allow auto-approve for dev apply/destroy without manual confirmation')
+    string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/Manojsiriparthi/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git', description: 'Git repository URL')
+    string(name: 'GIT_BRANCH', defaultValue: 'master', description: 'Git branch to checkout')
   }
 
   environment {
@@ -30,7 +32,11 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        checkout scm
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: "${params.GIT_BRANCH}"]],
+          userRemoteConfigs: [[url: "${params.GIT_REPO_URL}"]]
+        ])
       }
     }
 
