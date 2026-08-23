@@ -1,6 +1,6 @@
 // Jenkins-Infra.grrovy
-// Declarative Jenkins pipeline to manage Terraform infra in 'infra' folder
-// - Parameters: ENV (dev/test/prod), ACTION (plan/apply/destroy), AWS_CREDENTIALS_ID (optional), TF_DIR (default infra)
+// Declarative Jenkins pipeline to manage Terraform infra
+// - Parameters: ENV (dev/test/prod), ACTION (plan/apply/destroy)
 // - For apply/destroy on test and prod the pipeline requires manual approval
 // - If AWS_CREDENTIALS_ID is not provided the node's IAM role (instance profile) will be used
 
@@ -17,37 +17,40 @@ pipeline {
     choice(name: 'ENV', choices: ['dev','test','prod'], description: 'Target environment (affects TF workspace/state)')
     choice(name: 'ACTION', choices: ['plan','apply','destroy'], description: 'Terraform action to perform')
     string(name: 'AWS_CREDENTIALS_ID', defaultValue: '', description: '(optional) Jenkins AWS credentials ID. Leave empty to use instance/IAM role on Jenkins server')
-    string(name: 'TF_DIR', defaultValue: 'infra', description: 'Path to Terraform configuration (relative to repo root)')
-    string(name: 'TF_WORKSPACE', defaultValue: '', description: '(optional) Terraform workspace name — if empty the pipeline will use ENV')
     booleanParam(name: 'AUTO_APPROVE_DEV', defaultValue: true, description: 'Allow auto-approve for dev apply/destroy without manual confirmation')
-    string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/Manojsiriparthi/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git', description: 'Git repository URL')
-    string(name: 'GIT_BRANCH', defaultValue: 'master', description: 'Git branch to checkout')
   }
 
   environment {
-    // Default workspace fallback
-    TF_WS = "${params.TF_WORKSPACE ?: params.ENV}"
+    // Set TF directory based on environment
+    TF_DIR = "01-infrastucture/environments/${params.ENV}"
+    TF_WS = "${params.ENV}"
   }
 
   stages {
     stage('Checkout') {
       steps {
-        checkout([
-          $class: 'GitSCM',
-          branches: [[name: "${params.GIT_BRANCH}"]],
-          userRemoteConfigs: [[url: "${params.GIT_REPO_URL}"]]
-        ])
+        script {
+          echo "Checking out repository: Manojsiriparthi/End-to-End-Kubernetes-DevSecOps-Tetris-Project"
+          checkout(
+            [
+              $class: 'GitSCM',
+              branches: [[name: '*/master']],
+              userRemoteConfigs: [[url: 'https://github.com/Manojsiriparthi/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git']]
+            ]
+          )
+        }
       }
     }
 
     stage('Sanity: check infra folder') {
       steps {
         script {
-          def dirExists = fileExists(params.TF_DIR)
+          def dirExists = fileExists(env.TF_DIR)
           if (!dirExists) {
-            error "Terraform directory '${params.TF_DIR}' not found in repo. Aborting."
+            error "Terraform directory '${env.TF_DIR}' not found in repo. Aborting."
           } else {
-            echo "Found Terraform dir: ${params.TF_DIR}"
+            echo "Found Terraform dir: ${env.TF_DIR}"
+            sh "ls -la ${env.TF_DIR}"
           }
         }
       }
@@ -55,8 +58,9 @@ pipeline {
 
     stage('Prepare Terraform') {
       steps {
-        dir(params.TF_DIR) {
+        dir(env.TF_DIR) {
           script {
+            echo "Terraform version:"
             sh 'terraform --version'
           }
         }
@@ -65,21 +69,20 @@ pipeline {
 
     stage('Terraform Init') {
       steps {
-        dir(params.TF_DIR) {
+        dir(env.TF_DIR) {
           script {
+            echo "Initializing Terraform for environment: ${params.ENV}"
             sh "terraform init -input=false -no-color"
 
-            // create/select workspace (use env-based workspace default)
-            if (env.TF_WS) {
-              sh "terraform workspace list || true"
-              // try select, if fails create
-              def sel = sh(script: "terraform workspace select ${env.TF_WS} || true", returnStatus: true)
-              if (sel != 0) {
-                echo "Workspace ${env.TF_WS} not found, creating it"
-                sh "terraform workspace new ${env.TF_WS}"
-              } else {
-                echo "Using workspace ${env.TF_WS}"
-              }
+            // create/select workspace
+            sh "terraform workspace list || true"
+            // try select, if fails create
+            def sel = sh(script: "terraform workspace select ${env.TF_WS} || true", returnStatus: true)
+            if (sel != 0) {
+              echo "Workspace ${env.TF_WS} not found, creating it"
+              sh "terraform workspace new ${env.TF_WS}"
+            } else {
+              echo "Using workspace ${env.TF_WS}"
             }
           }
         }
@@ -92,7 +95,8 @@ pipeline {
       }
       steps {
         script {
-          dir(params.TF_DIR) {
+          dir(env.TF_DIR) {
+            echo "Running Terraform plan for ${params.ACTION} action"
             if (params.ACTION == 'destroy') {
               // plan destroy
               sh "terraform plan -destroy -input=false -no-color -out=tfplan"
@@ -101,6 +105,7 @@ pipeline {
             }
 
             // show a short human-friendly plan
+            echo "Terraform plan output (first 200 lines):"
             sh "terraform show -no-color tfplan | sed -n '1,200p' || true"
           }
         }
@@ -117,6 +122,7 @@ pipeline {
       steps {
         script {
           // Prompt for manual approval
+          echo "Awaiting approval for ${params.ACTION} on ${params.ENV} environment..."
           timeout(time: 2, unit: 'HOURS') {
             input message: "Approve ${params.ACTION} on ${params.ENV}?", ok: "Proceed", submitter: '', parameters: [string(name: 'APPROVER_NOTE', defaultValue: '', description: 'Optional note')]
           }
@@ -130,24 +136,17 @@ pipeline {
       }
       steps {
         script {
-          dir(params.TF_DIR) {
+          dir(env.TF_DIR) {
+            echo "Executing Terraform ${params.ACTION} for ${params.ENV} environment"
             // If user provided AWS credentials id, bind them; otherwise rely on instance profile
             if (params.AWS_CREDENTIALS_ID?.trim()) {
               echo "Using Jenkins AWS credentials id: ${params.AWS_CREDENTIALS_ID}"
               withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
-                if (params.ACTION == 'destroy') {
-                  sh "terraform apply -input=false -no-color -auto-approve tfplan"
-                } else {
-                  sh "terraform apply -input=false -no-color -auto-approve tfplan"
-                }
+                sh "terraform apply -input=false -no-color -auto-approve tfplan"
               }
             } else {
               echo "No AWS_CREDENTIALS_ID provided — using node's IAM role / environment for AWS auth"
-              if (params.ACTION == 'destroy') {
-                sh "terraform apply -input=false -no-color -auto-approve tfplan"
-              } else {
-                sh "terraform apply -input=false -no-color -auto-approve tfplan"
-              }
+              sh "terraform apply -input=false -no-color -auto-approve tfplan"
             }
           }
         }
@@ -159,7 +158,8 @@ pipeline {
         expression { params.ACTION == 'plan' }
       }
       steps {
-        dir(params.TF_DIR) {
+        dir(env.TF_DIR) {
+          echo "Archiving Terraform plan artifact"
           archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true, allowEmptyArchive: false
         }
       }
@@ -169,14 +169,15 @@ pipeline {
 
   post {
     success {
-      echo "Pipeline completed successfully for ${params.ENV}/${params.ACTION}"
+      echo "✓ Pipeline completed successfully for ${params.ENV}/${params.ACTION}"
     }
     failure {
-      echo "Pipeline failed"
+      echo "✗ Pipeline failed for ${params.ENV}/${params.ACTION}"
     }
     always {
       script {
-        dir(params.TF_DIR) {
+        dir(env.TF_DIR) {
+          echo "Current Terraform workspace:"
           sh 'terraform workspace show || true'
         }
       }
