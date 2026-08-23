@@ -21,8 +21,8 @@ pipeline {
   }
 
   environment {
-    // Set TF directory based on environment
-    TF_DIR = "01-infrastucture/environments/${params.ENV}"
+    // Set TF directory based on environment - CORRECTED PATH
+    TF_DIR = "01-Infrastructure/environments/${params.ENV}"
     TF_WS = "${params.ENV}"
   }
 
@@ -38,6 +38,8 @@ pipeline {
               userRemoteConfigs: [[url: 'https://github.com/Manojsiriparthi/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git']]
             ]
           )
+          echo "Repository checked out successfully"
+          sh "ls -la"
         }
       }
     }
@@ -49,8 +51,8 @@ pipeline {
           if (!dirExists) {
             error "Terraform directory '${env.TF_DIR}' not found in repo. Aborting."
           } else {
-            echo "Found Terraform dir: ${env.TF_DIR}"
-            sh "ls -la ${env.TF_DIR}"
+            echo "✓ Found Terraform dir: ${env.TF_DIR}"
+            sh "echo 'Contents of ${env.TF_DIR}:' && ls -la ${env.TF_DIR}"
           }
         }
       }
@@ -62,6 +64,8 @@ pipeline {
           script {
             echo "Terraform version:"
             sh 'terraform --version'
+            echo "Terraform configuration files:"
+            sh 'ls -la *.tf 2>/dev/null || echo "No .tf files found in current directory"'
           }
         }
       }
@@ -75,14 +79,16 @@ pipeline {
             sh "terraform init -input=false -no-color"
 
             // create/select workspace
+            echo "Available workspaces:"
             sh "terraform workspace list || true"
+            
             // try select, if fails create
             def sel = sh(script: "terraform workspace select ${env.TF_WS} || true", returnStatus: true)
             if (sel != 0) {
               echo "Workspace ${env.TF_WS} not found, creating it"
               sh "terraform workspace new ${env.TF_WS}"
             } else {
-              echo "Using workspace ${env.TF_WS}"
+              echo "✓ Using workspace ${env.TF_WS}"
             }
           }
         }
@@ -96,7 +102,7 @@ pipeline {
       steps {
         script {
           dir(env.TF_DIR) {
-            echo "Running Terraform plan for ${params.ACTION} action"
+            echo "Running Terraform plan for ${params.ACTION} action on ${params.ENV}"
             if (params.ACTION == 'destroy') {
               // plan destroy
               sh "terraform plan -destroy -input=false -no-color -out=tfplan"
