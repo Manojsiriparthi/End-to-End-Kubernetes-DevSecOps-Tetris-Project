@@ -1,0 +1,99 @@
+version: 0.2
+
+env:
+  secrets-manager:
+    SONAR_TOKEN: "sonarqube_token:Sonar_token"
+
+  variables:
+    AWS_REGION: "ap-south-1"
+    ECR_REGISTRY: "153099270680.dkr.ecr.ap-south-1.amazonaws.com"
+    ECR_REPOSITORY: "tetris/frontend"
+    IMAGE_TAG: "v1.1.0"
+    SONAR_HOST_URL: "http://13.232.24.76:9000"
+
+phases:
+
+  install:
+    commands:
+      - echo "========== INSTALL PHASE =========="
+      - echo "Node version:"
+      - node --version
+      - echo "NPM version:"
+      - npm --version
+      - echo "Docker version:"
+      - docker --version
+      - echo "Installing application dependencies..."
+      - npm ci
+      - echo "Installing SonarScanner..."
+      - npm install --no-save sonar-scanner
+
+  pre_build:
+    commands:
+      - echo "========== PRE-BUILD PHASE =========="
+
+      - echo "Running ESLint..."
+      - npx eslint src --ext .js,.jsx
+
+      - echo "Logging into Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+      - echo "Building Docker image..."
+      - docker build --platform linux/amd64 -t $ECR_REPOSITORY:$IMAGE_TAG .
+
+      - echo "Docker image built successfully."
+
+  build:
+    commands:
+      - echo "========== BUILD PHASE =========="
+
+      - echo "Running unit tests..."
+      - CI=true npm test -- --watchAll=false --coverage
+
+      - echo "Running SonarQube analysis..."
+
+      - |
+        ./node_modules/.bin/sonar-scanner \
+          -Dsonar.projectKey=tetris \
+          -Dsonar.sources=src \
+          -Dsonar.host.url=$SONAR_HOST_URL \
+          -Dsonar.token=$SONAR_TOKEN
+
+      - echo "SonarQube analysis completed."
+
+  post_build:
+    commands:
+      - echo "========== POST-BUILD PHASE =========="
+
+      - echo "Tagging Docker image..."
+      - docker tag \
+          $ECR_REPOSITORY:$IMAGE_TAG \
+          $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - echo "Pushing Docker image to ECR..."
+      - docker push \
+          $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - echo "Docker image pushed successfully."
+
+      - echo "Creating image information..."
+      - mkdir -p reports
+      - echo "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" > reports/image.txt
+
+      - echo "Build completed on $(date)"
+
+reports:
+  tetris-coverage:
+    files:
+      - "coverage/**/*"
+    base-directory: "."
+    discard-paths: no
+
+artifacts:
+  files:
+    - "coverage/**/*"
+    - "reports/**/*"
+  discard-paths: no
+
+cache:
+  paths:
+    - "/root/.npm/**/*"
