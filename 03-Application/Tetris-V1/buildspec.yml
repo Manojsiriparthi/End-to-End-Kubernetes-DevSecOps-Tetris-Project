@@ -15,6 +15,7 @@ phases:
 
   install:
     commands:
+      - cd 03-Application/Tetris-V1
       - echo "========== INSTALL PHASE =========="
       - echo "Node version:"
       - node --version
