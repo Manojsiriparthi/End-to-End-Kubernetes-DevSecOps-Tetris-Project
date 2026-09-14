@@ -54,7 +54,7 @@ phases:
 
       - |
         ./node_modules/.bin/sonar-scanner \
-          -Dsonar.projectKey=tetris \
+          -Dsonar.projectKey=Tetris \
           -Dsonar.sources=src \
           -Dsonar.host.url=$SONAR_HOST_URL \
           -Dsonar.token=$SONAR_TOKEN
