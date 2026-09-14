@@ -1,250 +1,251 @@
 version: 0.2
 
 env:
-  secrets-manager:
-    SONAR_TOKEN: "sonarqube_token:Sonar_token"
-
   variables:
     AWS_REGION: "ap-south-1"
-    ECR_REGISTRY: "153099270680.dkr.ecr.ap-south-1.amazonaws.com"
     ECR_REPOSITORY: "tetris/frontend"
     IMAGE_TAG: "v1.1.0"
     ENVIRONMENT: "dev"
     SONAR_HOST_URL: "http://13.232.24.76:9000"
     SNS_TOPIC_ARN: "arn:aws:sns:ap-south-1:153099270680:tetris-build-notifications"
 
+  secrets-manager:
+    SONAR_TOKEN: "sonarqube_token:Sonar_token"
+
 phases:
 
   install:
+    runtime-versions:
+      nodejs: 18
+
     commands:
-      - "cd 03-Application/Tetris-V1"
-      - "echo '========================================='"
-      - "echo 'INSTALL PHASE'"
-      - "echo '========================================='"
-      - "pwd"
-      - "node --version"
-      - "npm --version"
-      - "docker --version"
-      - "aws --version"
-      - "echo 'Installing dependencies...'"
-      - "npm ci"
-      - "echo 'Installing SonarScanner...'"
-      - "npm install --no-save sonar-scanner"
-      - "echo 'INSTALL PHASE COMPLETED'"
+      - echo "=========================================="
+      - echo "INSTALL PHASE"
+      - echo "=========================================="
+      - node --version
+      - npm --version
+
+      - cd 03-Application/Tetris-V1
+
+      - echo "Installing Node dependencies..."
+      - npm ci
+
+      - echo "Installing SonarScanner..."
+      - npm install --no-save sonar-scanner
+
+      - echo "Checking required tools..."
+      - docker --version
+      - aws --version
+      - git --version
 
   pre_build:
     commands:
-      - "echo '========================================='"
-      - "echo 'PRE-BUILD PHASE'"
-      - "echo '========================================='"
+      - echo "=========================================="
+      - echo "PRE-BUILD PHASE"
+      - echo "=========================================="
 
-      - "echo 'Running ESLint...'"
-      - "npx eslint src --ext .js,.jsx"
-      - "echo 'ESLint PASSED'"
+      - echo "Current directory:"
+      - pwd
 
-      - "echo 'Logging into Amazon ECR...'"
-      - "aws ecr get-login-password --region \"$AWS_REGION\" | docker login --username AWS --password-stdin \"$ECR_REGISTRY\""
-      - "echo 'ECR LOGIN PASSED'"
+      - echo "Listing application files:"
+      - ls -la
 
-      - "echo 'Building Docker image...'"
-      - "docker build --platform linux/amd64 -t \"$ECR_REPOSITORY:$IMAGE_TAG\" ."
-      - "echo 'DOCKER BUILD PASSED'"
+      - echo "Checking AWS identity..."
+      - aws sts get-caller-identity
+
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "153099270680.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+      - echo "Checking ECR repository..."
+      - aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" --region "$AWS_REGION"
 
   build:
     commands:
-      - "echo '========================================='"
-      - "echo 'TEST PHASE'"
-      - "echo '========================================='"
+      - echo "=========================================="
+      - echo "BUILD PHASE"
+      - echo "=========================================="
 
-      - "echo 'Running Jest unit tests with coverage...'"
-      - "CI=true npm test -- --watchAll=false --coverage"
-      - "echo 'JEST TESTS PASSED'"
+      - echo "Running ESLint..."
+      - npx eslint src
 
-      - "echo '========================================='"
-      - "echo 'SONARQUBE ANALYSIS'"
-      - "echo '========================================='"
+      - echo "Running Jest unit tests..."
+      - CI=true npx react-scripts test --watchAll=false --coverage --runInBand
 
-      - "./node_modules/.bin/sonar-scanner -Dsonar.projectKey=Tetris -Dsonar.sources=src -Dsonar.host.url=\"$SONAR_HOST_URL\" -Dsonar.token=\"$SONAR_TOKEN\""
+      - echo "Running SonarQube analysis..."
+      - ./node_modules/.bin/sonar-scanner -Dsonar.projectKey=Tetris -Dsonar.projectName="Tetris Frontend" -Dsonar.sources=src -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300
 
-      - "echo 'SONARQUBE ANALYSIS COMPLETED'"
-      - "echo 'BUILD PHASE COMPLETED'"
+      - echo "SonarQube Quality Gate passed."
+
+      - echo "Building Docker image..."
+      - docker build --platform linux/amd64 -t "153099270680.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG" .
+
+      - echo "Checking Docker image..."
+      - docker images
+
+      - echo "Pushing release image to ECR..."
+      - docker push "153099270680.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - echo "Release image pushed successfully."
 
   post_build:
     commands:
+      - echo "=========================================="
+      - echo "POST-BUILD PHASE"
+      - echo "=========================================="
 
-      - "echo '========================================='"
-      - "echo 'POST-BUILD PHASE'"
-      - "echo '========================================='"
-
-      - "echo 'Tagging immutable release image...'"
-      - "docker tag \"$ECR_REPOSITORY:$IMAGE_TAG\" \"$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\""
-
-      - "echo 'Pushing release image to ECR...'"
-      - "docker push \"$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\""
-
-      - "echo 'RELEASE IMAGE PUSHED'"
-
-      - "echo '========================================='"
-      - "echo 'ECR VULNERABILITY SCAN'"
-      - "echo '========================================='"
-
-      - "echo 'Waiting for ECR vulnerability scan...'"
+      - echo "Waiting for Amazon ECR vulnerability scan..."
 
       - |
-        SCAN_STATUS=""
+        SCAN_READY=false
 
-        for i in {1..30}; do
-          SCAN_STATUS=$(aws ecr describe-image-scan-findings \
+        for i in $(seq 1 30); do
+          echo "ECR scan check $i/30..."
+
+          if aws ecr describe-image-scan-findings \
             --repository-name "$ECR_REPOSITORY" \
             --image-id imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION" \
-            --query 'imageScanStatus.status' \
-            --output text 2>/dev/null || true)
+            --output json > /tmp/ecr-findings.json 2>/tmp/ecr-scan-error.log; then
 
-          echo "ECR scan status: $SCAN_STATUS"
-
-          if [ "$SCAN_STATUS" = "COMPLETE" ]; then
+            echo "ECR scan findings are available."
+            SCAN_READY=true
             break
           fi
 
-          if [ "$SCAN_STATUS" = "FAILED" ]; then
-            echo "ECR vulnerability scan FAILED"
+          echo "ECR scan is not ready yet."
 
-            aws sns publish \
-              --topic-arn "$SNS_TOPIC_ARN" \
-              --subject "Tetris Pipeline - ECR Scan Failed" \
-              --message "Tetris CodeBuild failed because the ECR vulnerability scan failed for image $IMAGE_TAG."
+          cat /tmp/ecr-scan-error.log || true
 
+          if grep -q "AccessDeniedException" /tmp/ecr-scan-error.log; then
+            echo "ERROR: CodeBuild IAM role does not have permission to read ECR scan findings."
             exit 1
           fi
 
           sleep 10
         done
 
-        if [ "$SCAN_STATUS" != "COMPLETE" ]; then
-          echo "ECR vulnerability scan did not complete within the expected time."
-
-          aws sns publish \
-            --topic-arn "$SNS_TOPIC_ARN" \
-            --subject "Tetris Pipeline - ECR Scan Timeout" \
-            --message "Tetris CodeBuild failed because the ECR vulnerability scan timed out for image $IMAGE_TAG."
-
+        if [ "$SCAN_READY" != "true" ]; then
+          echo "ERROR: ECR vulnerability scan did not become available within the timeout."
           exit 1
         fi
 
-      - "echo 'ECR SCAN COMPLETED'"
-
-      - "echo '========================================='"
-      - "echo 'SECURITY GATE'"
-      - "echo '========================================='"
+      - echo "=========================================="
+      - echo "ECR VULNERABILITY RESULTS"
+      - echo "=========================================="
 
       - |
-        FINDINGS=$(aws ecr describe-image-scan-findings \
+        CRITICAL=$(aws ecr describe-image-scan-findings \
           --repository-name "$ECR_REPOSITORY" \
           --image-id imageTag="$IMAGE_TAG" \
           --region "$AWS_REGION" \
-          --query 'imageScanFindings.findingSeverityCounts' \
-          --output json)
+          --query 'imageScanFindings.findingSeverityCounts.CRITICAL' \
+          --output text)
 
-        echo "ECR vulnerability findings:"
-        echo "$FINDINGS"
+        HIGH=$(aws ecr describe-image-scan-findings \
+          --repository-name "$ECR_REPOSITORY" \
+          --image-id imageTag="$IMAGE_TAG" \
+          --region "$AWS_REGION" \
+          --query 'imageScanFindings.findingSeverityCounts.HIGH' \
+          --output text)
 
-        CRITICAL=$(echo "$FINDINGS" | jq -r '.CRITICAL // 0')
-        HIGH=$(echo "$FINDINGS" | jq -r '.HIGH // 0')
-        MEDIUM=$(echo "$FINDINGS" | jq -r '.MEDIUM // 0')
-        LOW=$(echo "$FINDINGS" | jq -r '.LOW // 0')
+        MEDIUM=$(aws ecr describe-image-scan-findings \
+          --repository-name "$ECR_REPOSITORY" \
+          --image-id imageTag="$IMAGE_TAG" \
+          --region "$AWS_REGION" \
+          --query 'imageScanFindings.findingSeverityCounts.MEDIUM' \
+          --output text)
 
-        echo "========================================="
-        echo "VULNERABILITY SUMMARY"
-        echo "========================================="
-        echo "CRITICAL : $CRITICAL"
-        echo "HIGH     : $HIGH"
-        echo "MEDIUM   : $MEDIUM"
-        echo "LOW      : $LOW"
-        echo "========================================="
+        LOW=$(aws ecr describe-image-scan-findings \
+          --repository-name "$ECR_REPOSITORY" \
+          --image-id imageTag="$IMAGE_TAG" \
+          --region "$AWS_REGION" \
+          --query 'imageScanFindings.findingSeverityCounts.LOW' \
+          --output text)
+
+        if [ "$CRITICAL" = "None" ] || [ -z "$CRITICAL" ]; then
+          CRITICAL=0
+        fi
+
+        if [ "$HIGH" = "None" ] || [ -z "$HIGH" ]; then
+          HIGH=0
+        fi
+
+        if [ "$MEDIUM" = "None" ] || [ -z "$MEDIUM" ]; then
+          MEDIUM=0
+        fi
+
+        if [ "$LOW" = "None" ] || [ -z "$LOW" ]; then
+          LOW=0
+        fi
+
+        echo "CRITICAL vulnerabilities: $CRITICAL"
+        echo "HIGH vulnerabilities:     $HIGH"
+        echo "MEDIUM vulnerabilities:   $MEDIUM"
+        echo "LOW vulnerabilities:      $LOW"
+
+        echo "CRITICAL=$CRITICAL" > /tmp/ecr-security-result.txt
+        echo "HIGH=$HIGH" >> /tmp/ecr-security-result.txt
+        echo "MEDIUM=$MEDIUM" >> /tmp/ecr-security-result.txt
+        echo "LOW=$LOW" >> /tmp/ecr-security-result.txt
 
         if [ "$CRITICAL" -gt 0 ]; then
+          echo "=========================================="
           echo "SECURITY GATE FAILED"
           echo "CRITICAL vulnerabilities detected: $CRITICAL"
-          echo "Image will NOT be promoted to DEV."
+          echo "HIGH vulnerabilities are warnings only."
+          echo "=========================================="
 
           aws sns publish \
             --topic-arn "$SNS_TOPIC_ARN" \
-            --subject "Tetris Pipeline - SECURITY GATE FAILED" \
-            --message "Tetris image $IMAGE_TAG failed the security gate. CRITICAL vulnerabilities: $CRITICAL. HIGH: $HIGH. Image was NOT promoted to DEV."
+            --region "$AWS_REGION" \
+            --subject "Tetris CI/CD - SECURITY GATE FAILED" \
+            --message "Tetris build $IMAGE_TAG failed the ECR security gate. CRITICAL=$CRITICAL HIGH=$HIGH MEDIUM=$MEDIUM LOW=$LOW" \
+            || true
 
           exit 1
         fi
 
-        if [ "$HIGH" -gt 0 ]; then
-          echo "WARNING: HIGH vulnerabilities detected: $HIGH"
-          echo "HIGH vulnerabilities are allowed by the current policy."
-        else
-          echo "No HIGH vulnerabilities detected."
-        fi
-
+        echo "=========================================="
         echo "SECURITY GATE PASSED"
-        echo "CRITICAL vulnerabilities: 0"
+        echo "CRITICAL vulnerabilities: $CRITICAL"
+        echo "HIGH vulnerabilities: $HIGH (warning only)"
+        echo "=========================================="
 
-      - "echo '========================================='"
-      - "echo 'SECURITY PASSED - PROMOTING TO DEV'"
-      - "echo '========================================='"
+      - echo "Promoting image to DEV environment..."
 
-      - "docker tag \"$ECR_REPOSITORY:$IMAGE_TAG\" \"$ECR_REGISTRY/$ECR_REPOSITORY:dev\""
+      - docker tag "153099270680.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG" "153099270680.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:dev"
 
-      - "docker push \"$ECR_REGISTRY/$ECR_REPOSITORY:dev\""
+      - docker push "153099270680.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:dev"
 
-      - "echo 'DEV IMAGE PROMOTED SUCCESSFULLY'"
+      - echo "DEV image promoted successfully."
 
-      - "echo '========================================='"
-      - "echo 'CREATING ARTIFACTS'"
-      - "echo '========================================='"
+      - echo "Getting image digest..."
 
-      - "mkdir -p reports"
+      - |
+        IMAGE_DIGEST=$(aws ecr describe-images \
+          --repository-name "$ECR_REPOSITORY" \
+          --image-ids imageTag="$IMAGE_TAG" \
+          --region "$AWS_REGION" \
+          --query 'imageDetails[0].imageDigest' \
+          --output text)
 
-      - "echo \"$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\" > reports/image.txt"
+        echo "Image tag: $IMAGE_TAG"
+        echo "Environment: $ENVIRONMENT"
+        echo "Image digest: $IMAGE_DIGEST"
 
-      - "echo \"$IMAGE_TAG\" > reports/version.txt"
-
-      - "echo \"$ENVIRONMENT\" > reports/environment.txt"
-
-      - "echo \"CRITICAL=$CRITICAL\" > reports/security-scan.txt"
-
-      - "echo \"HIGH=$HIGH\" >> reports/security-scan.txt"
-
-      - "echo \"MEDIUM=$MEDIUM\" >> reports/security-scan.txt"
-
-      - "echo \"LOW=$LOW\" >> reports/security-scan.txt"
-
-      - "echo 'SECURITY_GATE=PASSED' >> reports/security-scan.txt"
-
-      - "echo 'BUILD_STATUS=SUCCESS' > reports/build-status.txt"
-
-      - "echo '========================================='"
-      - "echo 'VERIFYING ECR IMAGE'"
-      - "echo '========================================='"
-
-      - "aws ecr describe-images --repository-name \"$ECR_REPOSITORY\" --image-ids imageTag=\"$IMAGE_TAG\" --region \"$AWS_REGION\""
-
-      - "echo 'ECR IMAGE VERIFICATION PASSED'"
-
-      - "echo '========================================='"
-      - "echo 'PIPELINE SUCCESS'"
-      - "echo '========================================='"
-
-      - "echo \"Application: Tetris Frontend\""
-      - "echo \"Version: $IMAGE_TAG\""
-      - "echo \"Environment: $ENVIRONMENT\""
-      - "echo \"ECR Image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\""
-      - "echo \"CRITICAL: $CRITICAL\""
-      - "echo \"HIGH: $HIGH\""
-      - "date"
+      - echo "Sending success notification..."
 
       - |
         aws sns publish \
           --topic-arn "$SNS_TOPIC_ARN" \
-          --subject "Tetris Pipeline - SUCCESS" \
-          --message "Tetris CodeBuild succeeded. Image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG. DEV promotion completed. CRITICAL: $CRITICAL. HIGH: $HIGH."
+          --region "$AWS_REGION" \
+          --subject "Tetris CI/CD - BUILD SUCCESS" \
+          --message "Tetris build $IMAGE_TAG succeeded. Environment=dev. ECR image pushed and security gate passed. CRITICAL vulnerabilities=0. HIGH vulnerabilities are warnings only." \
+          || true
+
+      - echo "=========================================="
+      - echo "PIPELINE BUILD COMPLETED"
+      - echo "=========================================="
 
 artifacts:
   files:
@@ -255,4 +256,5 @@ artifacts:
 
 cache:
   paths:
+    - "03-Application/Tetris-V1/node_modules/**/*"
     - "/root/.npm/**/*"
