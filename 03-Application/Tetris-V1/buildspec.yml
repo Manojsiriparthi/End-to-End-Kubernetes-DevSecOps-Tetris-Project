@@ -12,6 +12,7 @@ env:
   secrets-manager:
     SONAR_TOKEN: "sonarqube_token:Sonar_token"
 
+
 phases:
 
   install:
@@ -19,9 +20,15 @@ phases:
       nodejs: 18
 
     commands:
-      - echo "===== INSTALL PHASE ====="
+
+      - echo "=========================================="
+      - echo "INSTALL PHASE"
+      - echo "=========================================="
+
       - node --version
       - npm --version
+      - docker --version
+      - aws --version
 
       - cd 03-Application/Tetris-V1
 
@@ -31,48 +38,42 @@ phases:
       - echo "Installing SonarScanner..."
       - npm install --no-save sonar-scanner
 
-      - echo "Installing Trivy..."
-      - |
-          TRIVY_VERSION="0.56.2"
+      - echo "Checking SonarScanner..."
+      - ./node_modules/.bin/sonar-scanner --version
 
-          curl -sfL \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
-            -o /tmp/trivy.tar.gz
-
-          tar -xzf /tmp/trivy.tar.gz -C /tmp
-
-          mv /tmp/trivy /usr/local/bin/trivy
-
-          chmod +x /usr/local/bin/trivy
-
-          trivy --version
-
-      - echo "Checking tools..."
-      - docker --version
-      - aws --version
-      - trivy --version
+      - echo "Checking Docker..."
+      - docker info
 
 
   pre_build:
     commands:
-      - echo "===== PRE-BUILD PHASE ====="
+
+      - echo "=========================================="
+      - echo "PRE-BUILD PHASE"
+      - echo "=========================================="
+
+      - cd 03-Application/Tetris-V1
 
       - echo "Current directory:"
       - pwd
 
-      - echo "AWS identity:"
+      - echo "AWS Account:"
       - aws sts get-caller-identity
 
-      - echo "Logging into ECR..."
+      - echo "Logging into Amazon ECR..."
+
       - |
           aws ecr get-login-password \
             --region "$AWS_REGION" \
             | docker login \
-                --username AWS \
-                --password-stdin \
-                "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+              --username AWS \
+              --password-stdin \
+              "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+      - echo "ECR login successful."
 
       - echo "Checking ECR repository..."
+
       - |
           aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
@@ -82,12 +83,28 @@ phases:
   build:
     commands:
 
-      - echo "===== BUILD PHASE ====="
+      - echo "=========================================="
+      - echo "BUILD PHASE"
+      - echo "=========================================="
+
+      # ----------------------------------------
+      # ESLINT
+      # ----------------------------------------
 
       - echo "Running ESLint..."
-      - npx eslint src
+
+      - |
+          npx eslint src
+
+      - echo "ESLint passed."
+
+
+      # ----------------------------------------
+      # JEST
+      # ----------------------------------------
 
       - echo "Running Jest tests..."
+
       - |
           CI=true \
           npx react-scripts test \
@@ -95,7 +112,15 @@ phases:
             --coverage \
             --runInBand
 
-      - echo "Running SonarQube..."
+      - echo "Jest tests passed."
+
+
+      # ----------------------------------------
+      # SONARQUBE
+      # ----------------------------------------
+
+      - echo "Running SonarQube analysis..."
+
       - |
           ./node_modules/.bin/sonar-scanner \
             -Dsonar.projectKey=Tetris \
@@ -114,7 +139,13 @@ phases:
 
       - echo "SonarQube Quality Gate passed."
 
+
+      # ----------------------------------------
+      # DOCKER BUILD
+      # ----------------------------------------
+
       - echo "Building Docker image..."
+
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
 
@@ -123,41 +154,138 @@ phases:
             -t "$ECR_URI:$IMAGE_TAG" \
             .
 
-      - echo "Docker build completed."
+      - echo "Docker image built successfully."
+
+      - docker images
+
+
+      # ----------------------------------------
+      # TRIVY DETAILED SCAN
+      # ----------------------------------------
+
+      - echo "=========================================="
+      - echo "TRIVY DETAILED SECURITY SCAN"
+      - echo "=========================================="
+
+      - mkdir -p reports
+
+      - echo "Pulling Trivy scanner..."
+
+      - |
+          docker pull aquasec/trivy:0.56.2
+
+      - echo "Running Trivy vulnerability scan..."
+
+      - |
+          ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/reports:/reports" \
+            aquasec/trivy:0.56.2 \
+            image \
+            --scanners vuln \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            --format table \
+            --output /reports/trivy-report.txt \
+            "$ECR_URI:$IMAGE_TAG"
+
+      - echo "Trivy detailed report:"
+      - cat reports/trivy-report.txt
+
+
+      # ----------------------------------------
+      # TRIVY JSON REPORT
+      # ----------------------------------------
+
+      - echo "Generating Trivy JSON report..."
+
+      - |
+          ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/reports:/reports" \
+            aquasec/trivy:0.56.2 \
+            image \
+            --scanners vuln \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            --format json \
+            --output /reports/trivy-report.json \
+            "$ECR_URI:$IMAGE_TAG"
+
+      - echo "Trivy JSON report generated."
+
+
+      # ----------------------------------------
+      # TRIVY SECURITY GATE
+      # ----------------------------------------
+
+      - echo "=========================================="
+      - echo "TRIVY SECURITY GATE"
+      - echo "=========================================="
+
+      - |
+          ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
+
+          echo "Checking for CRITICAL vulnerabilities..."
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.56.2 \
+            image \
+            --scanners vuln \
+            --severity CRITICAL \
+            --exit-code 1 \
+            "$ECR_URI:$IMAGE_TAG"
+
+      - echo "=========================================="
+      - echo "TRIVY SECURITY GATE PASSED"
+      - echo "=========================================="
+
+      - echo "No CRITICAL vulnerabilities found."
 
 
   post_build:
     commands:
 
-      - echo "===== POST-BUILD PHASE ====="
+      - echo "=========================================="
+      - echo "POST-BUILD PHASE"
+      - echo "=========================================="
 
-      # ------------------------------------------------
-      # 1. PUSH IMAGE TO ECR
-      # ------------------------------------------------
+      - cd 03-Application/Tetris-V1
 
-      - echo "Pushing $IMAGE_TAG to ECR..."
+
+      # ----------------------------------------
+      # PUSH TO ECR
+      # ----------------------------------------
+
+      - echo "=========================================="
+      - echo "PUSHING IMAGE TO ECR"
+      - echo "=========================================="
+
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
 
           docker push "$ECR_URI:$IMAGE_TAG"
 
-      - echo "Image pushed successfully."
+      - echo "Image pushed to ECR."
 
 
-      # ------------------------------------------------
-      # 2. WAIT FOR ECR SCAN
-      # ------------------------------------------------
+      # ----------------------------------------
+      # WAIT FOR ECR SCAN
+      # ----------------------------------------
 
-      - echo "===== WAITING FOR ECR SCAN ====="
-
-      - mkdir -p reports
+      - echo "=========================================="
+      - echo "WAITING FOR ECR SCAN"
+      - echo "=========================================="
 
       - |
           SCAN_READY="false"
 
           for i in $(seq 1 30); do
 
-            echo "ECR scan check $i/30"
+            echo "ECR scan check $i/30..."
 
             if aws ecr describe-image-scan-findings \
               --repository-name "$ECR_REPOSITORY" \
@@ -165,7 +293,7 @@ phases:
               --region "$AWS_REGION" \
               --output json \
               > reports/ecr-findings.json \
-              2> /tmp/ecr-error.log
+              2> /tmp/ecr-scan-error.log
             then
 
               echo "ECR scan findings are available."
@@ -173,15 +301,19 @@ phases:
               SCAN_READY="true"
 
               break
+
             fi
 
-            echo "ECR scan not ready yet."
+            echo "ECR scan is still running."
 
-            cat /tmp/ecr-error.log || true
+            cat /tmp/ecr-scan-error.log || true
 
-            if grep -q "AccessDeniedException" /tmp/ecr-error.log; then
+            if grep -q "AccessDeniedException" /tmp/ecr-scan-error.log; then
+
               echo "ERROR: Missing ecr:DescribeImageScanFindings permission."
+
               exit 1
+
             fi
 
             sleep 10
@@ -189,16 +321,21 @@ phases:
           done
 
           if [ "$SCAN_READY" != "true" ]; then
-            echo "ERROR: ECR scan timeout."
+
+            echo "ERROR: ECR scan did not complete within timeout."
+
             exit 1
+
           fi
 
 
-      # ------------------------------------------------
-      # 3. ECR OVERVIEW
-      # ------------------------------------------------
+      # ----------------------------------------
+      # ECR OVERVIEW
+      # ----------------------------------------
 
-      - echo "===== ECR VULNERABILITY OVERVIEW ====="
+      - echo "=========================================="
+      - echo "ECR VULNERABILITY OVERVIEW"
+      - echo "=========================================="
 
       - |
           CRITICAL=$(aws ecr describe-image-scan-findings \
@@ -229,14 +366,25 @@ phases:
             --query 'imageScanFindings.findingSeverityCounts.LOW' \
             --output text)
 
-          [ "$CRITICAL" = "None" ] && CRITICAL=0
-          [ "$HIGH" = "None" ] && HIGH=0
-          [ "$MEDIUM" = "None" ] && MEDIUM=0
-          [ "$LOW" = "None" ] && LOW=0
+          if [ "$CRITICAL" = "None" ]; then
+            CRITICAL=0
+          fi
+
+          if [ "$HIGH" = "None" ]; then
+            HIGH=0
+          fi
+
+          if [ "$MEDIUM" = "None" ]; then
+            MEDIUM=0
+          fi
+
+          if [ "$LOW" = "None" ]; then
+            LOW=0
+          fi
 
           echo ""
           echo "=========================================="
-          echo "ECR SCAN SUMMARY"
+          echo "ECR SCAN RESULTS"
           echo "=========================================="
           echo "CRITICAL : $CRITICAL"
           echo "HIGH     : $HIGH"
@@ -244,10 +392,20 @@ phases:
           echo "LOW      : $LOW"
           echo "=========================================="
 
+
+      # ----------------------------------------
+      # ECR JSON REPORT
+      # ----------------------------------------
+
+      - echo "Saving ECR security summary..."
+
+      - |
           cat > reports/ecr-summary.txt <<EOF
           ECR Vulnerability Scan
           ======================
-          Image: $ECR_REPOSITORY:$IMAGE_TAG
+
+          Image:
+          $ECR_REPOSITORY:$IMAGE_TAG
 
           CRITICAL: $CRITICAL
           HIGH: $HIGH
@@ -256,131 +414,43 @@ phases:
           EOF
 
 
-      # ------------------------------------------------
-      # 4. TRIVY DETAILED SCAN
-      # ------------------------------------------------
+      # ----------------------------------------
+      # ECR SECOND SECURITY CHECK
+      # ----------------------------------------
 
-      - echo "===== TRIVY DETAILED SCAN ====="
-
-      - |
-          ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
-
-          echo "Scanning:"
-          echo "$ECR_URI:$IMAGE_TAG"
-
-          trivy image \
-            --scanners vuln \
-            --severity CRITICAL,HIGH,MEDIUM,LOW \
-            --format table \
-            --output reports/trivy-report.txt \
-            "$ECR_URI:$IMAGE_TAG"
-
-          cat reports/trivy-report.txt
-
-      - echo "Generating Trivy JSON report..."
+      - echo "Checking ECR CRITICAL vulnerabilities..."
 
       - |
-          ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
-
-          trivy image \
-            --scanners vuln \
-            --severity CRITICAL,HIGH,MEDIUM,LOW \
-            --format json \
-            --output reports/trivy-report.json \
-            "$ECR_URI:$IMAGE_TAG"
-
-
-      # ------------------------------------------------
-      # 5. TRIVY SECURITY GATE
-      # ------------------------------------------------
-
-      - echo "===== TRIVY SECURITY GATE ====="
-
-      - |
-          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' reports/trivy-report.json)
-
-          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy-report.json)
-
-          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' reports/trivy-report.json)
-
-          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' reports/trivy-report.json)
-
-          echo ""
-          echo "=========================================="
-          echo "TRIVY SCAN SUMMARY"
-          echo "=========================================="
-          echo "CRITICAL : $CRITICAL"
-          echo "HIGH     : $HIGH"
-          echo "MEDIUM   : $MEDIUM"
-          echo "LOW      : $LOW"
-          echo "=========================================="
-
-          cat > reports/trivy-summary.txt <<EOF
-          Trivy Container Scan
-          ====================
-
-          Image: $ECR_REPOSITORY:$IMAGE_TAG
-
-          CRITICAL: $CRITICAL
-          HIGH: $HIGH
-          MEDIUM: $MEDIUM
-          LOW: $LOW
-          EOF
-
           if [ "$CRITICAL" -gt 0 ]; then
 
             echo "=========================================="
-            echo "SECURITY GATE FAILED"
+            echo "ECR SECURITY GATE FAILED"
             echo "=========================================="
 
-            echo "CRITICAL vulnerabilities: $CRITICAL"
+            echo "CRITICAL vulnerabilities found: $CRITICAL"
 
             aws sns publish \
               --topic-arn "$SNS_TOPIC_ARN" \
               --region "$AWS_REGION" \
-              --subject "Tetris - SECURITY GATE FAILED" \
-              --message "Tetris $IMAGE_TAG failed security gate. Trivy CRITICAL=$CRITICAL HIGH=$HIGH MEDIUM=$MEDIUM LOW=$LOW" \
+              --subject "Tetris - ECR SECURITY GATE FAILED" \
+              --message "Tetris image $IMAGE_TAG failed ECR security gate. CRITICAL=$CRITICAL HIGH=$HIGH MEDIUM=$MEDIUM LOW=$LOW" \
               || true
 
             exit 1
+
           fi
 
-          echo "=========================================="
-          echo "SECURITY GATE PASSED"
-          echo "=========================================="
-
-          echo "CRITICAL: $CRITICAL - PASS"
-          echo "HIGH: $HIGH - WARNING ONLY"
-          echo "MEDIUM: $MEDIUM - WARNING ONLY"
-          echo "LOW: $LOW - WARNING ONLY"
+          echo "ECR security gate passed."
+          echo "CRITICAL = 0"
 
 
-      # ------------------------------------------------
-      # 6. GET IMAGE DIGEST
-      # ------------------------------------------------
+      # ----------------------------------------
+      # PROMOTE TO DEV
+      # ----------------------------------------
 
-      - echo "Getting ECR image digest..."
-
-      - |
-          IMAGE_DIGEST=$(aws ecr describe-images \
-            --repository-name "$ECR_REPOSITORY" \
-            --image-ids imageTag="$IMAGE_TAG" \
-            --region "$AWS_REGION" \
-            --query 'imageDetails[0].imageDigest' \
-            --output text)
-
-          echo "Image:"
-          echo "$ECR_REPOSITORY:$IMAGE_TAG"
-
-          echo "Digest:"
-          echo "$IMAGE_DIGEST"
-
-
-      # ------------------------------------------------
-      # 7. PROMOTE TO DEV
-      # ------------------------------------------------
-
-      - echo "===== PROMOTING IMAGE TO DEV ====="
+      - echo "=========================================="
+      - echo "PROMOTING IMAGE TO DEV"
+      - echo "=========================================="
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
@@ -392,12 +462,36 @@ phases:
           docker push \
             "$ECR_URI:dev"
 
-      - echo "DEV promotion completed."
+      - echo "Image promoted to DEV."
 
 
-      # ------------------------------------------------
-      # 8. SUCCESS SNS
-      # ------------------------------------------------
+      # ----------------------------------------
+      # GET IMAGE DIGEST
+      # ----------------------------------------
+
+      - echo "Getting image digest..."
+
+      - |
+          IMAGE_DIGEST=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          echo "=========================================="
+          echo "IMAGE INFORMATION"
+          echo "=========================================="
+          echo "Repository: $ECR_REPOSITORY"
+          echo "Tag:        $IMAGE_TAG"
+          echo "Environment: dev"
+          echo "Digest:     $IMAGE_DIGEST"
+          echo "=========================================="
+
+
+      # ----------------------------------------
+      # SUCCESS SNS
+      # ----------------------------------------
 
       - echo "Sending SNS success notification..."
 
@@ -406,10 +500,12 @@ phases:
             --topic-arn "$SNS_TOPIC_ARN" \
             --region "$AWS_REGION" \
             --subject "Tetris CI/CD - BUILD SUCCESS" \
-            --message "Tetris $IMAGE_TAG build succeeded. SonarQube passed. ECR scan completed. Trivy scan completed. CRITICAL=0. Image promoted to dev." \
+            --message "Tetris $IMAGE_TAG successfully passed Jest, SonarQube, Trivy and ECR security checks. CRITICAL=0. Image promoted to dev." \
             || true
 
-      - echo "===== PIPELINE COMPLETED SUCCESSFULLY ====="
+      - echo "=========================================="
+      - echo "PIPELINE COMPLETED SUCCESSFULLY"
+      - echo "=========================================="
 
 
 artifacts:
