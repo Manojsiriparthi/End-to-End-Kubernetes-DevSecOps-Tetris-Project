@@ -3,21 +3,19 @@ FROM node:16-alpine AS builder
 WORKDIR /application
 
 COPY package.json package-lock.json ./
+
 RUN npm ci
 
 COPY . .
+
 RUN npm run build
 
 
 FROM nginx:alpine
 
-# Update Alpine package index and upgrade packages
+# Update Alpine packages to the latest available versions
 RUN apk update && \
     apk upgrade
-
-# Explicitly install the fixed util-linux package
-RUN apk add --no-cache \
-    util-linux=2.42.3-r0
 
 RUN rm -rf /usr/share/nginx/html/*
 
