@@ -11,18 +11,32 @@ env:
     IMAGE_TAG: "v1.1.0"
     SONAR_HOST_URL: "http://13.232.24.76:9000"
 
+
 phases:
 
+  # =========================================================
+  # INSTALL PHASE
+  # =========================================================
   install:
     commands:
+
       - cd 03-Application/Tetris-V1
-      - echo "========== INSTALL PHASE =========="
+
+      - echo "========================================="
+      - echo "INSTALL PHASE"
+      - echo "========================================="
+
       - echo "Node version:"
       - node --version
+
       - echo "NPM version:"
       - npm --version
+
       - echo "Docker version:"
       - docker --version
+
+      - echo "AWS CLI version:"
+      - aws --version
 
       - echo "Installing application dependencies..."
       - npm ci
@@ -30,29 +44,79 @@ phases:
       - echo "Installing SonarScanner..."
       - npm install --no-save sonar-scanner
 
+      - echo "INSTALL PHASE COMPLETED"
 
+
+  # =========================================================
+  # PRE-BUILD PHASE
+  # =========================================================
   pre_build:
     commands:
-      - echo "========== PRE-BUILD PHASE =========="
+
+      - echo "========================================="
+      - echo "PRE-BUILD PHASE"
+      - echo "========================================="
+
+      - echo "Current directory:"
+      - pwd
 
       - echo "Running ESLint..."
       - npx eslint src --ext .js,.jsx
 
+      - echo "ESLint completed successfully."
+
+      # -----------------------------------------------------
+      # ECR LOGIN
+      # -----------------------------------------------------
+
       - echo "Logging into Amazon ECR..."
+
       - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
+      - echo "ECR login successful."
+
+      # -----------------------------------------------------
+      # DOCKER BUILD
+      # -----------------------------------------------------
+
       - echo "Building Docker image..."
+
       - docker build --platform linux/amd64 -t "$ECR_REPOSITORY:$IMAGE_TAG" .
 
       - echo "Docker image built successfully."
 
+      - echo "PRE-BUILD PHASE COMPLETED"
 
+
+  # =========================================================
+  # BUILD PHASE
+  # =========================================================
   build:
     commands:
-      - echo "========== BUILD PHASE =========="
 
-      - echo "Running unit tests..."
+      - echo "========================================="
+      - echo "BUILD PHASE"
+      - echo "========================================="
+
+      # -----------------------------------------------------
+      # JEST UNIT TEST
+      # -----------------------------------------------------
+
+      - echo "Running Jest unit tests..."
+
       - CI=true npm test -- --watchAll=false --coverage
+
+      - echo "Jest unit tests completed successfully."
+
+      # -----------------------------------------------------
+      # SONARQUBE
+      # -----------------------------------------------------
+
+      - echo "========================================="
+      - echo "SONARQUBE ANALYSIS"
+      - echo "========================================="
+
+      - echo "SonarQube URL: $SONAR_HOST_URL"
 
       - echo "Running SonarQube analysis..."
 
@@ -63,43 +127,91 @@ phases:
           -Dsonar.host.url="$SONAR_HOST_URL" \
           -Dsonar.token="$SONAR_TOKEN"
 
-      - echo "SonarQube analysis completed."
+      - echo "SonarQube analysis completed successfully."
+
+      - echo "BUILD PHASE COMPLETED"
 
 
+  # =========================================================
+  # POST-BUILD PHASE
+  # =========================================================
   post_build:
     commands:
-      - echo "========== POST-BUILD PHASE =========="
+
+      - echo "========================================="
+      - echo "POST-BUILD PHASE"
+      - echo "========================================="
+
+      # -----------------------------------------------------
+      # DOCKER TAG
+      # -----------------------------------------------------
 
       - echo "Tagging Docker image..."
+
       - docker tag "$ECR_REPOSITORY:$IMAGE_TAG" "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-      - echo "Pushing Docker image to ECR..."
+      - echo "Docker image tagged successfully."
+
+      # -----------------------------------------------------
+      # DOCKER PUSH
+      # -----------------------------------------------------
+
+      - echo "Pushing Docker image to Amazon ECR..."
+
       - docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       - echo "Docker image pushed successfully."
 
+      # -----------------------------------------------------
+      # IMAGE INFORMATION
+      # -----------------------------------------------------
+
       - echo "Creating image information..."
+
       - mkdir -p reports
+
       - echo "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" > reports/image.txt
 
-      - echo "Build completed on $(date)"
+      - echo "Docker image:"
+      - cat reports/image.txt
+
+      # -----------------------------------------------------
+      # ECR IMAGE VERIFICATION
+      # -----------------------------------------------------
+
+      - echo "Verifying image in Amazon ECR..."
+
+      - aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" --region "$AWS_REGION"
+
+      - echo "ECR image verification completed."
+
+      # -----------------------------------------------------
+      # FINAL STATUS
+      # -----------------------------------------------------
+
+      - echo "========================================="
+      - echo "BUILD COMPLETED SUCCESSFULLY"
+      - echo "========================================="
+
+      - echo "Application: Tetris Frontend"
+      - echo "Version: $IMAGE_TAG"
+      - echo "ECR Image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+      - echo "Completed on: $(date)"
 
 
-reports:
-  tetris-coverage:
-    files:
-      - "coverage/**/*"
-    base-directory: "."
-    discard-paths: no
-
-
+# =========================================================
+# ARTIFACTS
+# =========================================================
 artifacts:
   files:
-    - "coverage/**/*"
     - "reports/**/*"
+
   discard-paths: no
 
 
+# =========================================================
+# CACHE
+# =========================================================
 cache:
   paths:
     - "/root/.npm/**/*"
