@@ -12,7 +12,6 @@ env:
   secrets-manager:
     SONAR_TOKEN: "sonarqube_token:Sonar_token"
 
-
 phases:
 
   install:
@@ -20,17 +19,15 @@ phases:
       nodejs: 18
 
     commands:
-
       - echo "=========================================="
       - echo "INSTALL PHASE"
       - echo "=========================================="
-
+      - pwd
+      - ls -la
       - node --version
       - npm --version
       - docker --version
       - aws --version
-
-      - cd 03-Application/Tetris-V1
 
       - echo "Installing Node dependencies..."
       - npm ci
@@ -47,17 +44,17 @@ phases:
 
   pre_build:
     commands:
-
       - echo "=========================================="
       - echo "PRE-BUILD PHASE"
       - echo "=========================================="
 
-      - cd 03-Application/Tetris-V1
-
       - echo "Current directory:"
       - pwd
 
-      - echo "AWS Account:"
+      - echo "Application files:"
+      - ls -la
+
+      - echo "Checking AWS identity..."
       - aws sts get-caller-identity
 
       - echo "Logging into Amazon ECR..."
@@ -87,21 +84,12 @@ phases:
       - echo "BUILD PHASE"
       - echo "=========================================="
 
-      # ----------------------------------------
-      # ESLINT
-      # ----------------------------------------
-
       - echo "Running ESLint..."
 
       - |
           npx eslint src
 
       - echo "ESLint passed."
-
-
-      # ----------------------------------------
-      # JEST
-      # ----------------------------------------
 
       - echo "Running Jest tests..."
 
@@ -113,11 +101,6 @@ phases:
             --runInBand
 
       - echo "Jest tests passed."
-
-
-      # ----------------------------------------
-      # SONARQUBE
-      # ----------------------------------------
 
       - echo "Running SonarQube analysis..."
 
@@ -139,11 +122,6 @@ phases:
 
       - echo "SonarQube Quality Gate passed."
 
-
-      # ----------------------------------------
-      # DOCKER BUILD
-      # ----------------------------------------
-
       - echo "Building Docker image..."
 
       - |
@@ -158,15 +136,7 @@ phases:
 
       - docker images
 
-
-      # ----------------------------------------
-      # TRIVY DETAILED SCAN
-      # ----------------------------------------
-
-      - echo "=========================================="
-      - echo "TRIVY DETAILED SECURITY SCAN"
-      - echo "=========================================="
-
+      - echo "Creating reports directory..."
       - mkdir -p reports
 
       - echo "Pulling Trivy scanner..."
@@ -174,7 +144,7 @@ phases:
       - |
           docker pull aquasec/trivy:0.56.2
 
-      - echo "Running Trivy vulnerability scan..."
+      - echo "Running Trivy detailed scan..."
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
@@ -192,11 +162,6 @@ phases:
 
       - echo "Trivy detailed report:"
       - cat reports/trivy-report.txt
-
-
-      # ----------------------------------------
-      # TRIVY JSON REPORT
-      # ----------------------------------------
 
       - echo "Generating Trivy JSON report..."
 
@@ -216,19 +181,10 @@ phases:
 
       - echo "Trivy JSON report generated."
 
-
-      # ----------------------------------------
-      # TRIVY SECURITY GATE
-      # ----------------------------------------
-
-      - echo "=========================================="
-      - echo "TRIVY SECURITY GATE"
-      - echo "=========================================="
+      - echo "Checking Trivy security gate..."
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
-
-          echo "Checking for CRITICAL vulnerabilities..."
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -241,9 +197,9 @@ phases:
 
       - echo "=========================================="
       - echo "TRIVY SECURITY GATE PASSED"
+      - echo "CRITICAL vulnerabilities = 0"
+      - echo "HIGH/MEDIUM/LOW are warnings only"
       - echo "=========================================="
-
-      - echo "No CRITICAL vulnerabilities found."
 
 
   post_build:
@@ -253,28 +209,14 @@ phases:
       - echo "POST-BUILD PHASE"
       - echo "=========================================="
 
-      - cd 03-Application/Tetris-V1
-
-
-      # ----------------------------------------
-      # PUSH TO ECR
-      # ----------------------------------------
-
-      - echo "=========================================="
-      - echo "PUSHING IMAGE TO ECR"
-      - echo "=========================================="
+      - echo "Pushing image to ECR..."
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
 
           docker push "$ECR_URI:$IMAGE_TAG"
 
-      - echo "Image pushed to ECR."
-
-
-      # ----------------------------------------
-      # WAIT FOR ECR SCAN
-      # ----------------------------------------
+      - echo "Image pushed successfully."
 
       - echo "=========================================="
       - echo "WAITING FOR ECR SCAN"
@@ -309,11 +251,8 @@ phases:
             cat /tmp/ecr-scan-error.log || true
 
             if grep -q "AccessDeniedException" /tmp/ecr-scan-error.log; then
-
               echo "ERROR: Missing ecr:DescribeImageScanFindings permission."
-
               exit 1
-
             fi
 
             sleep 10
@@ -321,17 +260,10 @@ phases:
           done
 
           if [ "$SCAN_READY" != "true" ]; then
-
-            echo "ERROR: ECR scan did not complete within timeout."
-
+            echo "ERROR: ECR scan timeout."
             exit 1
-
           fi
 
-
-      # ----------------------------------------
-      # ECR OVERVIEW
-      # ----------------------------------------
 
       - echo "=========================================="
       - echo "ECR VULNERABILITY OVERVIEW"
@@ -366,21 +298,10 @@ phases:
             --query 'imageScanFindings.findingSeverityCounts.LOW' \
             --output text)
 
-          if [ "$CRITICAL" = "None" ]; then
-            CRITICAL=0
-          fi
-
-          if [ "$HIGH" = "None" ]; then
-            HIGH=0
-          fi
-
-          if [ "$MEDIUM" = "None" ]; then
-            MEDIUM=0
-          fi
-
-          if [ "$LOW" = "None" ]; then
-            LOW=0
-          fi
+          [ "$CRITICAL" = "None" ] && CRITICAL=0
+          [ "$HIGH" = "None" ] && HIGH=0
+          [ "$MEDIUM" = "None" ] && MEDIUM=0
+          [ "$LOW" = "None" ] && LOW=0
 
           echo ""
           echo "=========================================="
@@ -392,20 +313,11 @@ phases:
           echo "LOW      : $LOW"
           echo "=========================================="
 
-
-      # ----------------------------------------
-      # ECR JSON REPORT
-      # ----------------------------------------
-
-      - echo "Saving ECR security summary..."
-
-      - |
           cat > reports/ecr-summary.txt <<EOF
           ECR Vulnerability Scan
           ======================
 
-          Image:
-          $ECR_REPOSITORY:$IMAGE_TAG
+          Image: $ECR_REPOSITORY:$IMAGE_TAG
 
           CRITICAL: $CRITICAL
           HIGH: $HIGH
@@ -413,10 +325,6 @@ phases:
           LOW: $LOW
           EOF
 
-
-      # ----------------------------------------
-      # ECR SECOND SECURITY CHECK
-      # ----------------------------------------
 
       - echo "Checking ECR CRITICAL vulnerabilities..."
 
@@ -427,13 +335,13 @@ phases:
             echo "ECR SECURITY GATE FAILED"
             echo "=========================================="
 
-            echo "CRITICAL vulnerabilities found: $CRITICAL"
+            echo "CRITICAL vulnerabilities: $CRITICAL"
 
             aws sns publish \
               --topic-arn "$SNS_TOPIC_ARN" \
               --region "$AWS_REGION" \
               --subject "Tetris - ECR SECURITY GATE FAILED" \
-              --message "Tetris image $IMAGE_TAG failed ECR security gate. CRITICAL=$CRITICAL HIGH=$HIGH MEDIUM=$MEDIUM LOW=$LOW" \
+              --message "Tetris $IMAGE_TAG failed ECR security gate. CRITICAL=$CRITICAL HIGH=$HIGH MEDIUM=$MEDIUM LOW=$LOW" \
               || true
 
             exit 1
@@ -443,10 +351,6 @@ phases:
           echo "ECR security gate passed."
           echo "CRITICAL = 0"
 
-
-      # ----------------------------------------
-      # PROMOTE TO DEV
-      # ----------------------------------------
 
       - echo "=========================================="
       - echo "PROMOTING IMAGE TO DEV"
@@ -462,12 +366,8 @@ phases:
           docker push \
             "$ECR_URI:dev"
 
-      - echo "Image promoted to DEV."
+      - echo "DEV promotion completed."
 
-
-      # ----------------------------------------
-      # GET IMAGE DIGEST
-      # ----------------------------------------
 
       - echo "Getting image digest..."
 
@@ -482,16 +382,12 @@ phases:
           echo "=========================================="
           echo "IMAGE INFORMATION"
           echo "=========================================="
-          echo "Repository: $ECR_REPOSITORY"
-          echo "Tag:        $IMAGE_TAG"
+          echo "Repository : $ECR_REPOSITORY"
+          echo "Tag        : $IMAGE_TAG"
           echo "Environment: dev"
-          echo "Digest:     $IMAGE_DIGEST"
+          echo "Digest     : $IMAGE_DIGEST"
           echo "=========================================="
 
-
-      # ----------------------------------------
-      # SUCCESS SNS
-      # ----------------------------------------
 
       - echo "Sending SNS success notification..."
 
@@ -500,7 +396,7 @@ phases:
             --topic-arn "$SNS_TOPIC_ARN" \
             --region "$AWS_REGION" \
             --subject "Tetris CI/CD - BUILD SUCCESS" \
-            --message "Tetris $IMAGE_TAG successfully passed Jest, SonarQube, Trivy and ECR security checks. CRITICAL=0. Image promoted to dev." \
+            --message "Tetris $IMAGE_TAG passed Jest, SonarQube, Trivy and ECR security checks. CRITICAL=0. Image promoted to dev." \
             || true
 
       - echo "=========================================="
@@ -513,12 +409,10 @@ artifacts:
     - "reports/**/*"
     - "coverage/**/*"
 
-  base-directory: "03-Application/Tetris-V1"
-
   discard-paths: no
 
 
 cache:
   paths:
-    - "03-Application/Tetris-V1/node_modules/**/*"
+    - "node_modules/**/*"
     - "/root/.npm/**/*"
