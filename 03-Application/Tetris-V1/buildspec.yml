@@ -12,6 +12,7 @@ env:
   secrets-manager:
     SONAR_TOKEN: "sonarqube_token:Sonar_token"
 
+
 phases:
 
   install:
@@ -19,14 +20,47 @@ phases:
       nodejs: 18
 
     commands:
+
       - echo "=========================================="
       - echo "INSTALL PHASE"
       - echo "=========================================="
+
+      - cd "$CODEBUILD_SRC_DIR/03-Application/Tetris-V1"
+
+      - echo "Working directory:"
       - pwd
+
+      - echo "Application files:"
       - ls -la
+
+      - echo "Checking required files..."
+
+      - |
+          test -f package.json || {
+            echo "ERROR: package.json not found"
+            exit 1
+          }
+
+          test -f package-lock.json || {
+            echo "ERROR: package-lock.json not found"
+            exit 1
+          }
+
+          test -f Dockerfile || {
+            echo "ERROR: Dockerfile not found"
+            exit 1
+          }
+
+      - echo "Node version:"
       - node --version
+
+      - echo "NPM version:"
       - npm --version
+
+      - echo "Docker version:"
       - docker --version
+
+      - echo "AWS CLI version:"
       - aws --version
 
       - echo "Installing Node dependencies..."
@@ -38,21 +72,18 @@ phases:
       - echo "Checking SonarScanner..."
       - ./node_modules/.bin/sonar-scanner --version
 
-      - echo "Checking Docker..."
-      - docker info
-
 
   pre_build:
     commands:
+
       - echo "=========================================="
       - echo "PRE-BUILD PHASE"
       - echo "=========================================="
 
-      - echo "Current directory:"
-      - pwd
+      - cd "$CODEBUILD_SRC_DIR/03-Application/Tetris-V1"
 
-      - echo "Application files:"
-      - ls -la
+      - echo "Working directory:"
+      - pwd
 
       - echo "Checking AWS identity..."
       - aws sts get-caller-identity
@@ -76,6 +107,9 @@ phases:
             --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION"
 
+      - echo "Creating reports directory..."
+      - mkdir -p reports
+
 
   build:
     commands:
@@ -84,25 +118,50 @@ phases:
       - echo "BUILD PHASE"
       - echo "=========================================="
 
-      - echo "Running ESLint..."
+      - cd "$CODEBUILD_SRC_DIR/03-Application/Tetris-V1"
+
+      - echo "Working directory:"
+      - pwd
+
+
+      # ==========================================
+      # ESLINT
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "RUNNING ESLINT"
+      - echo "=========================================="
 
       - |
           npx eslint src
 
       - echo "ESLint passed."
 
-      - echo "Running Jest tests..."
+
+      # ==========================================
+      # JEST
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "RUNNING JEST TESTS"
+      - echo "=========================================="
 
       - |
-          CI=true \
-          npx react-scripts test \
+          CI=true npx react-scripts test \
             --watchAll=false \
             --coverage \
             --runInBand
 
       - echo "Jest tests passed."
 
-      - echo "Running SonarQube analysis..."
+
+      # ==========================================
+      # SONARQUBE
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "RUNNING SONARQUBE"
+      - echo "=========================================="
 
       - |
           ./node_modules/.bin/sonar-scanner \
@@ -122,7 +181,14 @@ phases:
 
       - echo "SonarQube Quality Gate passed."
 
-      - echo "Building Docker image..."
+
+      # ==========================================
+      # DOCKER BUILD
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "BUILDING DOCKER IMAGE"
+      - echo "=========================================="
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
@@ -136,22 +202,33 @@ phases:
 
       - docker images
 
-      - echo "Creating reports directory..."
-      - mkdir -p reports
 
-      - echo "Pulling Trivy scanner..."
+      # ==========================================
+      # TRIVY
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "PULLING TRIVY"
+      - echo "=========================================="
 
       - |
           docker pull aquasec/trivy:0.56.2
 
-      - echo "Running Trivy detailed scan..."
+
+      # ==========================================
+      # TRIVY DETAILED REPORT
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "TRIVY DETAILED CONTAINER SCAN"
+      - echo "=========================================="
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/reports:/reports" \
+            -v "$CODEBUILD_SRC_DIR/03-Application/Tetris-V1/reports:/reports" \
             aquasec/trivy:0.56.2 \
             image \
             --scanners vuln \
@@ -163,6 +240,11 @@ phases:
       - echo "Trivy detailed report:"
       - cat reports/trivy-report.txt
 
+
+      # ==========================================
+      # TRIVY JSON
+      # ==========================================
+
       - echo "Generating Trivy JSON report..."
 
       - |
@@ -170,7 +252,7 @@ phases:
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/reports:/reports" \
+            -v "$CODEBUILD_SRC_DIR/03-Application/Tetris-V1/reports:/reports" \
             aquasec/trivy:0.56.2 \
             image \
             --scanners vuln \
@@ -179,12 +261,26 @@ phases:
             --output /reports/trivy-report.json \
             "$ECR_URI:$IMAGE_TAG"
 
-      - echo "Trivy JSON report generated."
 
-      - echo "Checking Trivy security gate..."
+      # ==========================================
+      # TRIVY SECURITY GATE
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "TRIVY SECURITY GATE"
+      - echo "=========================================="
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
+
+          echo "Policy:"
+          echo "CRITICAL = FAIL"
+          echo "HIGH     = WARNING"
+          echo "MEDIUM   = WARNING"
+          echo "LOW      = WARNING"
+
+          echo ""
+          echo "Scanning for CRITICAL vulnerabilities..."
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -198,7 +294,6 @@ phases:
       - echo "=========================================="
       - echo "TRIVY SECURITY GATE PASSED"
       - echo "CRITICAL vulnerabilities = 0"
-      - echo "HIGH/MEDIUM/LOW are warnings only"
       - echo "=========================================="
 
 
@@ -209,7 +304,19 @@ phases:
       - echo "POST-BUILD PHASE"
       - echo "=========================================="
 
-      - echo "Pushing image to ECR..."
+      - cd "$CODEBUILD_SRC_DIR/03-Application/Tetris-V1"
+
+      - echo "Working directory:"
+      - pwd
+
+
+      # ==========================================
+      # PUSH RELEASE IMAGE TO ECR
+      # ==========================================
+
+      - echo "=========================================="
+      - echo "PUSHING IMAGE TO ECR"
+      - echo "=========================================="
 
       - |
           ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY"
@@ -218,8 +325,13 @@ phases:
 
       - echo "Image pushed successfully."
 
+
+      # ==========================================
+      # WAIT FOR ECR SCAN
+      # ==========================================
+
       - echo "=========================================="
-      - echo "WAITING FOR ECR SCAN"
+      - echo "WAITING FOR ECR VULNERABILITY SCAN"
       - echo "=========================================="
 
       - |
@@ -246,13 +358,16 @@ phases:
 
             fi
 
-            echo "ECR scan is still running."
+            echo "ECR scan is not ready yet."
 
             cat /tmp/ecr-scan-error.log || true
 
             if grep -q "AccessDeniedException" /tmp/ecr-scan-error.log; then
+
               echo "ERROR: Missing ecr:DescribeImageScanFindings permission."
+
               exit 1
+
             fi
 
             sleep 10
@@ -260,10 +375,17 @@ phases:
           done
 
           if [ "$SCAN_READY" != "true" ]; then
-            echo "ERROR: ECR scan timeout."
+
+            echo "ERROR: ECR scan did not complete within timeout."
+
             exit 1
+
           fi
 
+
+      # ==========================================
+      # ECR OVERVIEW
+      # ==========================================
 
       - echo "=========================================="
       - echo "ECR VULNERABILITY OVERVIEW"
@@ -313,6 +435,12 @@ phases:
           echo "LOW      : $LOW"
           echo "=========================================="
 
+
+      # ==========================================
+      # ECR REPORT
+      # ==========================================
+
+      - |
           cat > reports/ecr-summary.txt <<EOF
           ECR Vulnerability Scan
           ======================
@@ -326,6 +454,10 @@ phases:
           EOF
 
 
+      # ==========================================
+      # ECR CRITICAL GATE
+      # ==========================================
+
       - echo "Checking ECR CRITICAL vulnerabilities..."
 
       - |
@@ -335,7 +467,7 @@ phases:
             echo "ECR SECURITY GATE FAILED"
             echo "=========================================="
 
-            echo "CRITICAL vulnerabilities: $CRITICAL"
+            echo "CRITICAL vulnerabilities found: $CRITICAL"
 
             aws sns publish \
               --topic-arn "$SNS_TOPIC_ARN" \
@@ -351,6 +483,10 @@ phases:
           echo "ECR security gate passed."
           echo "CRITICAL = 0"
 
+
+      # ==========================================
+      # PROMOTE TO DEV
+      # ==========================================
 
       - echo "=========================================="
       - echo "PROMOTING IMAGE TO DEV"
@@ -369,6 +505,10 @@ phases:
       - echo "DEV promotion completed."
 
 
+      # ==========================================
+      # IMAGE DIGEST
+      # ==========================================
+
       - echo "Getting image digest..."
 
       - |
@@ -383,11 +523,15 @@ phases:
           echo "IMAGE INFORMATION"
           echo "=========================================="
           echo "Repository : $ECR_REPOSITORY"
-          echo "Tag        : $IMAGE_TAG"
+          echo "Release    : $IMAGE_TAG"
           echo "Environment: dev"
           echo "Digest     : $IMAGE_DIGEST"
           echo "=========================================="
 
+
+      # ==========================================
+      # SNS SUCCESS
+      # ==========================================
 
       - echo "Sending SNS success notification..."
 
@@ -409,10 +553,12 @@ artifacts:
     - "reports/**/*"
     - "coverage/**/*"
 
+  base-directory: "03-Application/Tetris-V1"
+
   discard-paths: no
 
 
 cache:
   paths:
-    - "node_modules/**/*"
+    - "03-Application/Tetris-V1/node_modules/**/*"
     - "/root/.npm/**/*"
