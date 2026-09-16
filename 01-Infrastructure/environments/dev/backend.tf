@@ -9,9 +9,9 @@
 
 terraform {
   backend "s3" {
-    bucket = "manoj-gaming-app"
+    bucket = "pip-project-2026"
     key    = "infrastructure/dev/terraform.tfstate"
-    region = "us-east-1"
+    region = "ap-south-1"
     
     # Native file locking (no DynamoDB required)
     use_lockfile = true
