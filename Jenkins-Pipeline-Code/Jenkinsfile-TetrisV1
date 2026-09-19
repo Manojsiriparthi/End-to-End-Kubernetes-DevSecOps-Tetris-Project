@@ -30,7 +30,7 @@ pipeline {
         stage('Quality Check') {
             steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
+                    waitForQualityGate abortPipeline: true, credentialsId: 'sonar-token'
                 }
             }
         }
@@ -60,57 +60,31 @@ pipeline {
             steps {
                 script {
                     dir('Tetris-V1') {
-                        withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                            sh 'docker system prune -f'
-                            sh 'docker build -t tetrisv1 .'
-                        }
-                    }
-                }
-            }
-        }
-        stage("Docker Image Pushing") {
-            steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh 'docker tag tetrisv1 avian19/tetrisv1:${BUILD_NUMBER}'
-                        sh 'docker push avian19/tetrisv1:${BUILD_NUMBER}'
+                        sh 'docker system prune -f'
+                        sh 'docker build -t tetrisv1:${BUILD_NUMBER} .'
                     }
                 }
             }
         }
         stage("TRIVY Image Scan") {
             steps {
-                sh 'trivy image avian19/tetrisv1:${BUILD_NUMBER} > trivyimage.txt'
-            }
-        }
-        stage('Checkout Code') {
-            steps {
-                git branch: 'master', url: 'https://github.com/AmanPathak-DevOps/End-to-End-Kubernetes-DevSecOps-Tetris-Project.git'
-            }
-        }
-        stage('Update Deployment file') {
-            environment {
-                GIT_REPO_NAME = "End-to-End-Kubernetes-DevSecOps-Tetris-Project"
-                GIT_USER_NAME = "AmanPathak-DevOps"
-            }
-            steps {
-                dir('Manifest-file') {
-                    withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-                        sh '''
-                            git config user.email "aman07pathak@gmail.com"
-                            git config user.name "AmanPathak-DevOps"
-                            BUILD_NUMBER=${BUILD_NUMBER}
-                            echo $BUILD_NUMBER
-                            imageTag=$(grep -oP '(?<=tetrisv1:)[^ ]+' deployment-service.yml)
-                            echo $imageTag
-                            sed -i "s/tetrisv1:${imageTag}/tetrisv1:${BUILD_NUMBER}/" deployment-service.yml
-                            git add deployment-service.yml
-                            git commit -m "Update deployment Image to version \${BUILD_NUMBER}"
-                            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:master
-                        '''
-                    }
+                script {
+                    // Scans the local build and fails the pipeline if critical/high vulnerabilities are found
+                    sh 'trivy image --exit-code 1 --severity CRITICAL,HIGH tetrisv1:${BUILD_NUMBER} > trivyimage.txt'
                 }
             }
+        }
+    }
+    post {
+        success {
+            emailext to: 'your-email@example.com',
+                     subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                     body: "The pipeline successfully completed and passed all security scans. View build details at ${env.BUILD_URL}"
+        }
+        failure {
+            emailext to: 'your-email@example.com',
+                     subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                     body: "The pipeline has failed during execution or security vulnerability scanning. Check logs at ${env.BUILD_URL}"
         }
     }
 }
